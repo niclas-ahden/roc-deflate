@@ -1,0 +1,14 @@
+# Ignore generated binaries (with no extension) by default
+*
+!*.*
+!*/
+
+.direnv/
+.envrc
+generated-docs/
+
+# Benchmark corpus (Silesia), downloaded on demand by benchmark/run.roc
+benchmark/.corpus/
+
+# The catch-alls above ignore extensionless files, but this one must ship
+!LICENSE

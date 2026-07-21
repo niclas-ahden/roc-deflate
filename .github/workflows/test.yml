@@ -1,0 +1,45 @@
+name: Test
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  test:
+    uses: niclas-ahden/roc-workflows/.github/workflows/test.yml@v1
+
+  # Cross-checks our DEFLATE against a real, independent codec (gzip) in both
+  # directions and gates compression ratios on the committed Canterbury corpus.
+  # The reusable `test` job only runs our `expect` blocks, which round-trip our
+  # own compress/decompress against each other. That proves self-consistency,
+  # not standard compliance. This job proves compliance by running ./tests.roc
+  # (which re-runs the `expect`s too; they're cheap). The dev shell provides
+  # gzip and coreutils, so nothing is assumed from the runner image.
+  interop:
+    name: Interop (gzip)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v14
+
+      - name: Cache Nix store
+        uses: nix-community/cache-nix-action@v7
+        with:
+          primary-key: nix-${{ runner.os }}-${{ hashFiles('**/*.nix', '**/flake.lock') }}
+          restore-prefixes-first-match: nix-${{ runner.os }}-
+          gc-max-store-size-linux: 5G
+          purge: true
+          purge-prefixes: nix-${{ runner.os }}-
+          purge-created: 0
+          purge-primary-key: never
+
+      - name: Build Roc from the flake
+        run: nix build .#roc
+
+      - name: Run all tests (unit + gzip interop + ratio gate)
+        run: nix develop -c ./tests.roc
