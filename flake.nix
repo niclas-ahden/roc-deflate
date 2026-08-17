@@ -1,6 +1,11 @@
 {
   description = "roc-deflate";
 
+  nixConfig = {
+    extra-substituters = [ "https://niclas-ahden.cachix.org" ];
+    extra-trusted-public-keys = [ "niclas-ahden.cachix.org-1:FdGli1vBk0cTuVJV27Tau/JvlbW+Ly3pRwFByyqdke0=" ];
+  };
+
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
