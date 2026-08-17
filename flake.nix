@@ -10,7 +10,7 @@
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
     roc-src = {
-      url = "github:roc-lang/roc/18ef7fc30c0bc4957120e663f0183d296b981d5f";
+      url = "github:roc-lang/roc/0eadb5da411de33c2fce8cb214b15f88bb6f986d";
       flake = false;
     };
   };
@@ -55,6 +55,10 @@
           pname = "roc" + (if optimize == "ReleaseSafe" then "" else "-" + lib.toLower optimize);
           inherit version;
           src = roc-src;
+
+          # To patch the compiler, drop a diff in nix/ and list it here, e.g.
+          #
+          #   patches = [ ./nix/roc-pr-12345.patch ];
 
           nativeBuildInputs = [ zig ];
 
