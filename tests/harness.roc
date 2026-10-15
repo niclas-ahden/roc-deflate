@@ -1,4 +1,4 @@
-## Interop tests against real gzip, both directions, in-process.
+## Interop tests against real gzip and libdeflate, in-process.
 ##
 ## A deterministic corpus is generated in memory and written to a temp file.
 ## Forward: our DEFLATE stream is wrapped in a gzip container and handed to
@@ -7,10 +7,19 @@
 ## DEFLATE stream (gzip's 10-byte header and 8-byte trailer removed). Passing
 ## both directions proves standard compliance against an independent codec.
 ##
-## gzip only ever reads a file and writes to stdout (which we capture), so no
-## large payload is fed to its stdin and there is no pipe-buffer deadlock.
+## The compressor is a port of libdeflate's, so its output must also be the
+## same bytes as libdeflate's own `libdeflate-gzip` at every level from 1 to
+## 12, on the corpus and on inputs whose lengths sit where some level changes
+## behavior. Every level also round-trips those inputs and stays within
+## `compress_bound`. The decoder is then held to its error contract: every
+## truncation of a stream reports `UnexpectedEnd`, and flipping any single bit
+## of a stream decodes or fails but never crashes.
 ##
-##     roc tests/harness.roc
+## gzip and libdeflate-gzip only ever read a file and write to stdout (which
+## we capture) or next to the file, so no large payload is fed to a stdin and
+## there is no pipe-buffer deadlock. The flake's dev shell provides both:
+##
+##     nix develop -c roc tests/harness.roc
 app [main!] {
 	pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.26.0-rc2/Gj3zVDr3qrQa6aTh7Z1zgUfe9NeBE6R76T5ho3xrc8af.tar.zst",
 	deflate: "../package/main.roc",
@@ -62,9 +71,223 @@ main! = |args| {
 		$level = $level + 1
 	}
 
+	Stdout.line!("== libdeflate: our streams are the same bytes as libdeflate's")?
+	var $ld_level = 1.U64
+	while $ld_level <= 12 {
+		check_identical!(corpus, corpus_os, $ld_level)?
+		$ld_level = $ld_level + 1
+	}
+
+	Stdout.line!("== edge lengths: every level round-trips, stays in bound, and matches libdeflate")?
+	check_edges!(tmp, args.len())?
+
+	Stdout.line!("== decoder errors")?
+	check_decoder_errors!(List.sublist(corpus, { start: 0, len: 4096 }), tmp)?
+
 	Path.delete!(corpus_path) ? |_| Exit(1)
 	Stdout.line!("All interop checks passed")?
 	Ok({})
+}
+
+# Compress the corpus with libdeflate's own gzip at the same level, and confirm
+# our raw stream is the same bytes as the one inside libdeflate's container.
+check_identical! : List(U8), OsStr, U64 => Try({}, [Exit(I32), StdoutErr(IOErr)])
+check_identical! = |corpus, corpus_os, level| {
+	theirs = libdeflate_gzip!([OsStr.from_str("-c"), corpus_os], level)?.drop_first(10).drop_last(8)
+	ours = Deflate.compress(corpus, level)
+	if ours == theirs {
+		Stdout.line!("  level ${level.to_str()}: identical, ${ours.len().to_str()} bytes")
+	} else {
+		Stdout.line!("  level ${level.to_str()}: DIFFERS, ours ${ours.len().to_str()} bytes, libdeflate's ${theirs.len().to_str()}")?
+		Err(Exit(1))
+	}
+}
+
+# Run libdeflate-gzip at a level and return what it wrote to stdout.
+libdeflate_gzip! : List(OsStr), U64 => Try(List(U8), [Exit(I32), StdoutErr(IOErr)])
+libdeflate_gzip! = |arguments, level| {
+	output = match Cmd.new(OsStr.from_str("libdeflate-gzip")).args([OsStr.from_str("-${level.to_str()}")].concat(arguments)).run!() {
+		Ok(o) => o
+		Err(_) => {
+			Stdout.line!("  libdeflate-gzip did not run. The flake's dev shell provides it: nix develop -c ./tests.roc")?
+			return Err(Exit(1))
+		}
+	}
+	match output.status {
+		Exited(0) => Ok(output.stdout_bytes)
+		status => {
+			Stdout.line!("  libdeflate-gzip -${level.to_str()}: ${Str.inspect(status)}: ${output.stderr_utf8_lossy()}")?
+			Err(Exit(1))
+		}
+	}
+}
+
+# Lengths where some level changes behavior: every length up to 64, which
+# takes in the shortest inputs the hashes can read and each level's
+# passthrough limit, then the minimum block length, level 1's block length,
+# the soft maximum block length and a long match past it, the longest block
+# the near-optimal parser can be handed (a remainder shorter than the minimum
+# block length is folded into the block before it), and two of those.
+#
+# `extra` is 0, but coming from the command line it keeps every input built
+# from these lengths runtime-dependent, for the reason given in main!.
+edge_lengths : U64 -> List(U64)
+edge_lengths = |extra|
+	List.repeat(0.U64, 65)
+		.map_with_index(|_, i| i)
+		.concat([4999, 5000, 5001, 65535, 65536, 65537, 300000, 300258, 304742, 304743, 304999, 305000, 305001, 609998])
+		.map(|len| len + extra)
+
+# Bytes from a 64-bit LCG, which no level can compress.
+noise : U64 -> List(U8)
+noise = |len| {
+	var $out = List.with_capacity(len)
+	var $state = 0x2545F4914F6CDD1D.U64
+	while List.len($out) < len {
+		$state = $state.times_wrap(6364136223846793005).plus_wrap(1442695040888963407)
+		$out = List.append($out, $state.shr_zf_wrap(56).to_u8_wrap())
+	}
+	$out
+}
+
+# Every input in the edge sweep: each length of zeros, noise, text, and a
+# seven-byte pattern, so each length meets the parsers on runs, on nothing to
+# match, on ordinary matches, and on one short offset over and over.
+EdgeCase : { name : Str, bytes : List(U8) }
+
+edge_cases : U64 -> List(EdgeCase)
+edge_cases = |extra| {
+	lengths = edge_lengths(extra)
+	longest = lengths.fold(0, |most, len| most.max(len))
+	sources = [
+		{ shape: "zeros", bytes: List.repeat(0.U8, longest) },
+		{ shape: "noise", bytes: noise(longest) },
+		{ shape: "text", bytes: TextGen.generate(7, longest) },
+		{ shape: "pattern", bytes: List.repeat(0.U8, longest).map_with_index(|_, i| (97 + i % 7).to_u8_wrap()) },
+	]
+	var $cases = []
+	for source in sources {
+		for len in lengths {
+			$cases = $cases.append({ name: "${source.shape}_${len.to_str()}", bytes: List.sublist(source.bytes, { start: 0, len }) })
+		}
+	}
+	$cases
+}
+
+# Compress every edge case at every level. libdeflate-gzip compresses the
+# whole set in one run per level, writing each file's `.gz` next to it.
+# libdeflate-gzip has no level 0, so level 0 is held to the round trip and
+# the bound only.
+check_edges! : Path.Path, U64 => Try({}, [Exit(I32), StdoutErr(IOErr)])
+check_edges! = |tmp, extra| {
+	dir = tmp.join("roc_deflate_harness_edges")
+	Path.create_all!(dir) ? |_| Exit(1)
+	cases = edge_cases(extra)
+	for c in cases {
+		Path.write_bytes!(dir.join(c.name), c.bytes) ? |_| Exit(1)
+	}
+	file_args = cases.map(|c| OsStr.from_raw(Path.to_raw(dir.join(c.name))))
+
+	var $level = 0.U64
+	while $level <= 12 {
+		if $level >= 1 {
+			_ = libdeflate_gzip!([OsStr.from_str("-k"), OsStr.from_str("-f")].concat(file_args), $level)?
+		} else {}
+		for c in cases {
+			ours = Deflate.compress(c.bytes, $level)
+			if Deflate.decompress(ours) != Ok(c.bytes) {
+				Stdout.line!("  level ${$level.to_str()}, ${c.name}: does not round-trip")?
+				return Err(Exit(1))
+			} else {}
+			if List.len(ours) > Deflate.compress_bound(List.len(c.bytes)) {
+				Stdout.line!("  level ${$level.to_str()}, ${c.name}: ${List.len(ours).to_str()} bytes is over compress_bound")?
+				return Err(Exit(1))
+			} else {}
+			if $level >= 1 {
+				gz = Path.read_bytes!(dir.join("${c.name}.gz")) ? |_| Exit(1)
+				if ours != gz.drop_first(10).drop_last(8) {
+					Stdout.line!("  level ${$level.to_str()}, ${c.name}: DIFFERS from libdeflate")?
+					return Err(Exit(1))
+				} else {}
+			} else {}
+		}
+		Stdout.line!("  level ${$level.to_str()}: ${List.len(cases).to_str()} inputs")?
+		$level = $level + 1
+	}
+	Path.delete_all!(dir) ? |_| Exit(1)
+	Ok({})
+}
+
+# How a decode came out, without printing what it decoded to.
+outcome : Try(List(U8), [CorruptData, UnexpectedEnd]) -> Str
+outcome = |result|
+	match result {
+		Ok(_) => "Ok"
+		Err(CorruptData) => "CorruptData"
+		Err(UnexpectedEnd) => "UnexpectedEnd"
+	}
+
+# Hold the decoder to its error contract on streams of a short sample, ours at
+# four levels and real gzip's: every proper prefix of a stream is a truncation
+# and must report UnexpectedEnd, and a stream with any single bit flipped may
+# decode to something else or fail, but a crash ends this program and fails
+# the run. Then check decompress_into appends without reaching into what it
+# was handed.
+check_decoder_errors! : List(U8), Path.Path => Try({}, [Exit(I32), StdoutErr(IOErr)])
+check_decoder_errors! = |sample, tmp| {
+	sample_path = tmp.join("roc_deflate_harness_sample.bin")
+	Path.write_bytes!(sample_path, sample) ? |_| Exit(1)
+	gzip_out = Cmd.new(OsStr.from_str("gzip")).args([OsStr.from_str("-n"), OsStr.from_str("-6"), OsStr.from_str("-c"), OsStr.from_raw(Path.to_raw(sample_path))]).run!() ? |_| Exit(1)
+	gzip_res = gzip_out.require_success() ? |_| Exit(1)
+	Path.delete!(sample_path) ? |_| Exit(1)
+	streams = [
+		{ name: "level 0", bytes: Deflate.compress(sample, 0) },
+		{ name: "level 1", bytes: Deflate.compress(sample, 1) },
+		{ name: "level 6", bytes: Deflate.compress(sample, 6) },
+		{ name: "level 12", bytes: Deflate.compress(sample, 12) },
+		{ name: "gzip -6", bytes: gzip_res.stdout_bytes.drop_first(10).drop_last(8) },
+	]
+
+	for stream in streams {
+		var $len = 0.U64
+		while $len < List.len(stream.bytes) {
+			result = Deflate.decompress(List.sublist(stream.bytes, { start: 0, len: $len }))
+			if outcome(result) != "UnexpectedEnd" {
+				Stdout.line!("  ${stream.name}: the first ${$len.to_str()} bytes decode to ${outcome(result)}, not UnexpectedEnd")?
+				return Err(Exit(1))
+			} else {}
+			$len = $len + 1
+		}
+		Stdout.line!("  ${stream.name}: all ${List.len(stream.bytes).to_str()} truncations report UnexpectedEnd")?
+	}
+
+	for stream in streams {
+		var $ok = 0.U64
+		var $corrupt = 0.U64
+		var $short = 0.U64
+		var $bit = 0.U64
+		while $bit < List.len(stream.bytes) * 8 {
+			at = $bit // 8
+			byte = List.get(stream.bytes, at) ?? 0
+			flipped = List.set(stream.bytes, at, byte.bitwise_xor(1.U8.shl_wrap(($bit % 8).to_u8_wrap()))) ?? stream.bytes
+			match outcome(Deflate.decompress(flipped)) {
+				"Ok" => { $ok = $ok + 1 }
+				"CorruptData" => { $corrupt = $corrupt + 1 }
+				_ => { $short = $short + 1 }
+			}
+			$bit = $bit + 1
+		}
+		Stdout.line!("  ${stream.name}: every bit flipped once: ${$ok.to_str()} decode, ${$corrupt.to_str()} CorruptData, ${$short.to_str()} UnexpectedEnd")?
+	}
+
+	prefix = [1, 2, 3]
+	level6 = Deflate.compress(sample, 6)
+	if Deflate.decompress_into(level6, prefix) == Ok(prefix.concat(sample)) {
+		Stdout.line!("  decompress_into appends after what out holds")
+	} else {
+		Stdout.line!("  decompress_into: MISMATCH")?
+		Err(Exit(1))
+	}
 }
 
 # Compress and then decompress with our own code, and confirm the bytes come

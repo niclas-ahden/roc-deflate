@@ -70,10 +70,13 @@ Reproduce it on your machine with `nix develop -c ./benchmark/compress.roc [leve
 
 ## Testing
 
-`./tests.roc` (or `nix develop -c ./tests.roc` to get `gzip` and coreutils from the flake instead of the host) runs:
+`nix develop -c ./tests.roc` (the flake provides `gzip` and libdeflate's `libdeflate-gzip`) runs:
 
+- the package's `expect` blocks: hand-built streams that pin the decoder to the format (an empty fixed block, a stored block, a bad stored length, a reserved block type, truncations, a match with nothing to copy from), and short round trips at every level,
 - gzip interop in both directions on a deterministic 1 MB generated-text corpus: our output at levels 1, 6, 9, and 12 must decode byte-identically under real `gzip`, and real `gzip`'s streams at `-1`/`-6`/`-9` (differing block structures) must inflate byte-identically under our decompressor,
-- a round-trip of that same corpus through our own compressor and decompressor at every level from 0 to 12, so no parser goes unexercised, and
+- a round-trip of that same corpus through our own compressor and decompressor at every level from 0 to 12, so no parser goes unexercised,
+- byte-identity with libdeflate at every level from 1 to 12, on that corpus and on inputs of zeros, noise, text, and a repeating pattern at every length where some level changes behavior (each passthrough limit, the minimum, soft maximum, and longest block lengths), where every level must also round-trip and stay within `compress_bound`,
+- the decoder's error contract: every truncation of a stream reports `UnexpectedEnd`, and flipping any single bit of a stream decodes or fails but never crashes, and
 - a compression-ratio gate on the [Canterbury corpus](tests/corpus/): each level's output must stay within a ratchet ceiling, so a change that worsens compression fails the build.
 
 Quite nice!

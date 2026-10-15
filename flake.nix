@@ -42,16 +42,18 @@
 
         devShells = {
           default = pkgs.mkShell {
-            # tests.roc times gzip and reads it back. The benchmarks use curl
-            # and unzip to fetch the Silesia corpus (its hashes are checked in
-            # Roc), build libdeflate from its source with the shell's C
-            # compiler, and run both engines under mimalloc. Providing them
-            # here means the scripts never assume host tools, and cacert lets
-            # curl reach the mirror over HTTPS.
+            # tests.roc drives gzip, and libdeflate's own libdeflate-gzip as
+            # the reference our output must match byte for byte. The
+            # benchmarks use curl and unzip to fetch the Silesia corpus (its
+            # hashes are checked in Roc), build libdeflate from its source with
+            # the shell's C compiler, and run both engines under mimalloc.
+            # Providing them here means the scripts never assume host tools,
+            # and cacert lets curl reach the mirror over HTTPS.
             buildInputs = [
               roc
               pkgs.watchexec
               pkgs.gzip
+              pkgs.libdeflate
               pkgs.mimalloc
               pkgs.coreutils
               pkgs.curl

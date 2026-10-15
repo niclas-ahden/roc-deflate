@@ -184,3 +184,86 @@ optimal_params_for = |level|
 			max_len_to_optimize_static_block: 10000,
 		}
 	}
+
+# The tests here are the fast ones, so `roc test` stays quick on every
+# backend, the interpreter included. Hand-built streams pin the decoder to the
+# format itself rather than to this package's compressor. tests/harness.roc
+# covers the large inputs, byte-identity with libdeflate at every level, and
+# the decoder's error cases in bulk.
+
+# A final fixed Huffman block holding only the end-of-block code.
+expect Deflate.decompress([0x03, 0x00]) == Ok([])
+
+# A final stored block of "Hello": LEN 5, then NLEN, its complement.
+expect Deflate.decompress([0x01, 0x05, 0x00, 0xFA, 0xFF, 0x48, 0x65, 0x6C, 0x6C, 0x6F]) == Ok("Hello".to_utf8())
+
+# The same block with an NLEN that is not LEN's complement.
+expect Deflate.decompress([0x01, 0x05, 0x00, 0xFB, 0xFF, 0x48, 0x65, 0x6C, 0x6C, 0x6F]) == Err(CorruptData)
+
+# BTYPE 3 is reserved.
+expect Deflate.decompress([0x07]) == Err(CorruptData)
+
+# Input that ends before the stream does, the empty input included, wherever
+# it stops: in a block header, in a stored block's payload, or in a dynamic
+# block's code lengths.
+expect Deflate.decompress([]) == Err(UnexpectedEnd)
+
+expect Deflate.decompress([0x03]) == Err(UnexpectedEnd)
+
+expect Deflate.decompress([0x01, 0x05, 0x00, 0xFA, 0xFF, 0x48, 0x65]) == Err(UnexpectedEnd)
+
+expect {
+	stream = Deflate.compress("abcdefghijklmnopqrstuvwxyz, abcdefghijklmnopqrstuvwxyz, and the alphabet again".to_utf8(), 6)
+	Deflate.decompress(List.sublist(stream, { start: 0, len: 3 })) == Err(UnexpectedEnd)
+}
+
+# A fixed block holding one match, length 3 at distance 3, with no output
+# before it to copy from.
+expect Deflate.decompress([0x03, 0x22, 0x00]) == Err(CorruptData)
+
+# The bytes `out` already holds are not part of the stream, so the match is
+# just as corrupt when there is something there to copy.
+expect Deflate.decompress_into([0x03, 0x22, 0x00], [1, 2, 3]) == Err(CorruptData)
+
+# The output is appended to what `out` holds.
+expect Deflate.decompress_into([0x01, 0x05, 0x00, 0xFA, 0xFF, 0x48, 0x65, 0x6C, 0x6C, 0x6F], [1, 2]) == Ok([1, 2, 0x48, 0x65, 0x6C, 0x6C, 0x6F])
+
+# Every level round-trips the shortest inputs and the two lengths either side
+# of its passthrough limit, the longest input it stores without trying to
+# compress, and stays within `compress_bound`.
+expect {
+	text = "the cat, the cow, the crow, then the cricket saw the cow again and again".to_utf8()
+	var $ok = True
+	var $level = 0.U64
+	while $level <= 12 {
+		limit = if $level == 0 { 64 } else { 55 - 4 * $level }
+		for len in [0, 1, 2, 3, 4, 5, limit, limit + 1] {
+			original = List.sublist(text, { start: 0, len })
+			compressed = Deflate.compress(original, $level)
+			if Deflate.decompress(compressed) != Ok(original) or List.len(compressed) > Deflate.compress_bound(len) {
+				$ok = False
+			} else {}
+		}
+		$level = $level + 1
+	}
+	$ok
+}
+
+# Bytes that do not compress at all are where `compress_bound` is tightest.
+expect {
+	noise = List.repeat(0.U8, 3000).map_with_index(|_, i| {
+		a = i.times_wrap(0x9E3779B97F4A7C15)
+		b = a.bitwise_xor(a.shr_zf_wrap(29)).times_wrap(0xBF58476D1CE4E5B9)
+		b.bitwise_xor(b.shr_zf_wrap(32)).shr_zf_wrap(56).to_u8_wrap()
+	})
+	var $ok = True
+	var $level = 0.U64
+	while $level <= 12 {
+		compressed = Deflate.compress(noise, $level)
+		if Deflate.decompress(compressed) != Ok(noise) or List.len(compressed) > Deflate.compress_bound(3000) {
+			$ok = False
+		} else {}
+		$level = $level + 1
+	}
+	$ok
+}

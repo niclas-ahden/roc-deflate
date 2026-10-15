@@ -1,17 +1,22 @@
 #!/usr/bin/env roc
-## All tests: gzip interop in both directions and a round-trip at every level,
-## then the compression-ratio gate.
+## All tests: the package's `expect` blocks, then interop with gzip and
+## libdeflate with the edge-length sweep and the decoder's error checks, then
+## the compression-ratio gate.
 ##
-## tests/harness.roc generates a corpus in memory, drives real gzip through the
-## platform's Cmd, and compares bytes in-process. Forward proves our streams
-## decode under real gzip; reverse proves we inflate real gzip's streams; the
-## round-trip covers every level, including the ones gzip interop skips.
-## tests/ratios.roc compresses the committed Canterbury corpus and fails on a
-## ratio regression.
+## The `expect` blocks in package/ are the quick ones: hand-built streams that
+## pin the decoder to the format, and short round trips at every level.
+## tests/harness.roc generates a corpus in memory, drives real gzip and
+## libdeflate-gzip through the platform's Cmd, and compares bytes in-process.
+## Forward proves our streams decode under real gzip, reverse proves we inflate
+## real gzip's streams, and libdeflate proves our output is the same bytes as
+## the library this package ports, at every level and at the input lengths
+## where some level changes behavior. tests/ratios.roc compresses the committed
+## Canterbury corpus and fails on a ratio regression.
 ##
 ## harness and ratios are built with --opt=speed, the LLVM backend the README
 ## numbers come from, so both exercise the same code the benchmark measures.
-## gzip is the only external tool, and the flake dev shell provides it:
+## gzip and libdeflate-gzip are the only external tools, and the flake dev
+## shell provides them:
 ##
 ##     nix develop -c ./tests.roc
 app [main!] {
@@ -23,7 +28,10 @@ import pf.Cmd
 import pf.OsStr
 
 main! = |_| {
-	Stdout.line!("== interop and round-trips (compiled --opt=speed)")?
+	Stdout.line!("== unit tests")?
+	run!("roc", ["test", "package/main.roc"])?
+
+	Stdout.line!("== interop, edge lengths, and decoder errors (compiled --opt=speed)")?
 	build!("tests/harness.roc", "tests/harness")?
 	run!("./tests/harness", [])?
 
