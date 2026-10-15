@@ -65,17 +65,14 @@ main! = |args| {
 	# level selects a different parser or a different search effort, so a level
 	# that is never exercised is a parser that is never exercised.
 	Stdout.line!("== round-trip through our own decompressor, every level")?
-	var $level = 0.U64
-	while $level <= 12 {
-		check_roundtrip!(corpus, $level)?
-		$level = $level + 1
+	for level in Deflate.Level.all {
+		check_roundtrip!(corpus, level)?
 	}
 
 	Stdout.line!("== libdeflate: our streams are the same bytes as libdeflate's")?
-	var $ld_level = 1.U64
-	while $ld_level <= 12 {
-		check_identical!(corpus, corpus_os, $ld_level)?
-		$ld_level = $ld_level + 1
+	# libdeflate-gzip has no level 0.
+	for level in Deflate.Level.all.drop_first(1) {
+		check_identical!(corpus, corpus_os, level)?
 	}
 
 	Stdout.line!("== edge lengths: every level round-trips, stays in bound, and matches libdeflate")?
@@ -91,14 +88,14 @@ main! = |args| {
 
 # Compress the corpus with libdeflate's own gzip at the same level, and confirm
 # our raw stream is the same bytes as the one inside libdeflate's container.
-check_identical! : List(U8), OsStr, U64 => Try({}, [Exit(I32), StdoutErr(IOErr)])
+check_identical! : List(U8), OsStr, Deflate.Level => Try({}, [Exit(I32), StdoutErr(IOErr)])
 check_identical! = |corpus, corpus_os, level| {
-	theirs = libdeflate_gzip!([OsStr.from_str("-c"), corpus_os], level)?.drop_first(10).drop_last(8)
+	theirs = libdeflate_gzip!([OsStr.from_str("-c"), corpus_os], level.to_u64())?.drop_first(10).drop_last(8)
 	ours = Deflate.compress(corpus, level)
 	if ours == theirs {
-		Stdout.line!("  level ${level.to_str()}: identical, ${ours.len().to_str()} bytes")
+		Stdout.line!("  level ${level.to_u64().to_str()}: identical, ${ours.len().to_str()} bytes")
 	} else {
-		Stdout.line!("  level ${level.to_str()}: DIFFERS, ours ${ours.len().to_str()} bytes, libdeflate's ${theirs.len().to_str()}")?
+		Stdout.line!("  level ${level.to_u64().to_str()}: DIFFERS, ours ${ours.len().to_str()} bytes, libdeflate's ${theirs.len().to_str()}")?
 		Err(Exit(1))
 	}
 }
@@ -188,31 +185,30 @@ check_edges! = |tmp, extra| {
 	}
 	file_args = cases.map(|c| OsStr.from_raw(Path.to_raw(dir.join(c.name))))
 
-	var $level = 0.U64
-	while $level <= 12 {
-		if $level >= 1 {
-			_ = libdeflate_gzip!([OsStr.from_str("-k"), OsStr.from_str("-f")].concat(file_args), $level)?
+	for level in Deflate.Level.all {
+		n = level.to_u64()
+		if n >= 1 {
+			_ = libdeflate_gzip!([OsStr.from_str("-k"), OsStr.from_str("-f")].concat(file_args), n)?
 		} else {}
 		for c in cases {
-			ours = Deflate.compress(c.bytes, $level)
+			ours = Deflate.compress(c.bytes, level)
 			if Deflate.decompress(ours) != Ok(c.bytes) {
-				Stdout.line!("  level ${$level.to_str()}, ${c.name}: does not round-trip")?
+				Stdout.line!("  level ${n.to_str()}, ${c.name}: does not round-trip")?
 				return Err(Exit(1))
 			} else {}
 			if List.len(ours) > Deflate.compress_bound(List.len(c.bytes)) {
-				Stdout.line!("  level ${$level.to_str()}, ${c.name}: ${List.len(ours).to_str()} bytes is over compress_bound")?
+				Stdout.line!("  level ${n.to_str()}, ${c.name}: ${List.len(ours).to_str()} bytes is over compress_bound")?
 				return Err(Exit(1))
 			} else {}
-			if $level >= 1 {
+			if n >= 1 {
 				gz = Path.read_bytes!(dir.join("${c.name}.gz")) ? |_| Exit(1)
 				if ours != gz.drop_first(10).drop_last(8) {
-					Stdout.line!("  level ${$level.to_str()}, ${c.name}: DIFFERS from libdeflate")?
+					Stdout.line!("  level ${n.to_str()}, ${c.name}: DIFFERS from libdeflate")?
 					return Err(Exit(1))
 				} else {}
 			} else {}
 		}
-		Stdout.line!("  level ${$level.to_str()}: ${List.len(cases).to_str()} inputs")?
-		$level = $level + 1
+		Stdout.line!("  level ${n.to_str()}: ${List.len(cases).to_str()} inputs")?
 	}
 	Path.delete_all!(dir) ? |_| Exit(1)
 	Ok({})
@@ -292,21 +288,21 @@ check_decoder_errors! = |sample, tmp| {
 
 # Compress and then decompress with our own code, and confirm the bytes come
 # back unchanged.
-check_roundtrip! : List(U8), U64 => Try({}, [Exit(I32), StdoutErr(IOErr)])
+check_roundtrip! : List(U8), Deflate.Level => Try({}, [Exit(I32), StdoutErr(IOErr)])
 check_roundtrip! = |corpus, level| {
 	deflated = Deflate.compress(corpus, level)
 	back = Deflate.decompress(deflated) ? |_| Exit(1)
 	if back == corpus {
-		Stdout.line!("  level ${level.to_str()}: round-tripped ${deflated.len().to_str()} bytes")
+		Stdout.line!("  level ${level.to_u64().to_str()}: round-tripped ${deflated.len().to_str()} bytes")
 	} else {
-		Stdout.line!("  level ${level.to_str()}: MISMATCH")?
+		Stdout.line!("  level ${level.to_u64().to_str()}: MISMATCH")?
 		Err(Exit(1))
 	}
 }
 
 # Compress with our encoder, wrap in a gzip member, and confirm real gzip
 # decodes it back to the exact corpus.
-check_forward! : List(U8), Path.Path, Str, U64 => Try({}, [Exit(I32), StdoutErr(IOErr)])
+check_forward! : List(U8), Path.Path, Str, Deflate.Level => Try({}, [Exit(I32), StdoutErr(IOErr)])
 check_forward! = |corpus, tmp, name, level| {
 	deflated = Deflate.compress(corpus, level)
 	container = gzip_wrap(deflated, Crc32.checksum(corpus), corpus.len())

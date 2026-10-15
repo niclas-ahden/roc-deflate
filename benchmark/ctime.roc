@@ -19,7 +19,8 @@ main! = |args| {
 	level_os = List.get(args, 1) ? |_| Exit(2)
 	reps_os = List.get(args, 2) ? |_| Exit(3)
 	out_os = List.get(args, 3) ? |_| Exit(4)
-	level = U64.from_str(OsStr.to_str_try(level_os) ? |_| Exit(2)) ? |_| Exit(2)
+	level_number = U64.from_str(OsStr.to_str_try(level_os) ? |_| Exit(2)) ? |_| Exit(2)
+	level = Deflate.Level.from_u64(level_number) ? |_| Exit(2)
 	reps = U64.from_str(OsStr.to_str_try(reps_os) ? |_| Exit(3)) ? |_| Exit(3)
 	data = Path.read_bytes!(Path.from_os_str(path_os)) ? |_| Exit(5)
 

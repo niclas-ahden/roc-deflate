@@ -8,8 +8,8 @@ import CompressOptimal
 ##
 ## `decompress` handles all three block types (stored, fixed Huffman, dynamic
 ## Huffman), so it reads streams produced by zlib, gzip, and ZIP tools.
-## `compress` takes a level from 0 to 12 with the same meaning libdeflate gives
-## it: the level selects the parser and how hard it searches.
+## `compress` takes a `Level` from 0 to 12 with the same meaning libdeflate
+## gives it: the level selects the parser and how hard it searches.
 
 ## Errors that can occur when decompressing a DEFLATE stream.
 ##
@@ -23,23 +23,55 @@ DeflateError : [
 
 Deflate := [].{
 
-	## Compress bytes into a raw DEFLATE stream at a level from 0 to 12. A level
-	## above 12 compresses as 12.
+	## A compression level from 0 to 12, with libdeflate's meaning: 0 stores the
+	## input without compressing it, 1 is the fastest, 6 the usual default, and
+	## 12 searches hardest.
+	##
+	## A number literal is a `Level` wherever one is expected, so
+	## `Deflate.compress(bytes, 6)` works, and a literal outside 0 to 12 is a
+	## compile-time error. A level only known at runtime, such as one read from
+	## a command-line argument, goes through `from_u64`.
+	Level :: U8.{
+		is_eq : _
+		to_hash : _
+
+		## Turn a number literal into a level when the program is compiled,
+		## rejecting any literal that is not a whole number from 0 to 12.
+		from_numeral : Numeral -> Try(Level, [InvalidNumeral(Str)])
+		from_numeral = |numeral|
+			match U8.from_numeral(numeral) {
+				Ok(n) if n <= 12 => Ok(Level.(n))
+				_ => Err(InvalidNumeral("A compression level is a whole number from 0 to 12."))
+			}
+
+		## The level for a number only known at runtime.
+		from_u64 : U64 -> Try(Level, [OutOfRange])
+		from_u64 = |n|
+			if n <= 12 {
+				Ok(Level.(n.to_u8_wrap()))
+			} else {
+				Err(OutOfRange)
+			}
+
+		## The level's number, from 0 to 12.
+		to_u64 : Level -> U64
+		to_u64 = |Level.(n)| n.to_u64()
+
+		## Every level, from 0 to 12.
+		all : List(Level)
+		all = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+	}
+
+	## Compress bytes into a raw DEFLATE stream at the given level.
 	##
 	## This never fails. It crashes only on a bug in this package.
-	compress : List(U8), U64 -> List(U8)
-	compress = |input, level| {
-		# Inputs this short are not worth trying to compress. The higher the
-		# level, the more it is worth bothering.
-		# Level 0 never compresses. Above it, the higher the level the more
-		# it is worth bothering with a very short input.
-		max_passthrough = if level == 0 {
-			18446744073709551615
-		} else if level * 4 >= 55 {
-			0
-		} else {
-			55 - level * 4
-		}
+	compress : List(U8), Level -> List(U8)
+	compress = |input, chosen| {
+		level = chosen.to_u64()
+		# Level 0 never compresses. Above it, inputs this short are not worth
+		# trying to compress, and the higher the level, the shorter an input it
+		# still tries on (libdeflate's `max_passthrough_size`).
+		max_passthrough = if level == 0 { 18446744073709551615 } else { 55 - 4 * level }
 		if List.len(input) <= max_passthrough {
 			store_uncompressed(input)
 		} else if level == 1 {
@@ -234,17 +266,16 @@ expect Deflate.decompress_into([0x01, 0x05, 0x00, 0xFA, 0xFF, 0x48, 0x65, 0x6C, 
 expect {
 	text = "the cat, the cow, the crow, then the cricket saw the cow again and again".to_utf8()
 	var $ok = True
-	var $level = 0.U64
-	while $level <= 12 {
-		limit = if $level == 0 { 64 } else { 55 - 4 * $level }
+	for level in Deflate.Level.all {
+		n = level.to_u64()
+		limit = if n == 0 { 64 } else { 55 - 4 * n }
 		for len in [0, 1, 2, 3, 4, 5, limit, limit + 1] {
 			original = List.sublist(text, { start: 0, len })
-			compressed = Deflate.compress(original, $level)
+			compressed = Deflate.compress(original, level)
 			if Deflate.decompress(compressed) != Ok(original) or List.len(compressed) > Deflate.compress_bound(len) {
 				$ok = False
 			} else {}
 		}
-		$level = $level + 1
 	}
 	$ok
 }
@@ -257,13 +288,19 @@ expect {
 		b.bitwise_xor(b.shr_zf_wrap(32)).shr_zf_wrap(56).to_u8_wrap()
 	})
 	var $ok = True
-	var $level = 0.U64
-	while $level <= 12 {
-		compressed = Deflate.compress(noise, $level)
+	for level in Deflate.Level.all {
+		compressed = Deflate.compress(noise, level)
 		if Deflate.decompress(compressed) != Ok(noise) or List.len(compressed) > Deflate.compress_bound(3000) {
 			$ok = False
 		} else {}
-		$level = $level + 1
 	}
 	$ok
 }
+
+# A level from a runtime number is checked there, and every level is listed
+# once, in order.
+expect Deflate.Level.from_u64(12).map_ok(|level| level.to_u64()) == Ok(12)
+
+expect Deflate.Level.from_u64(13).is_err()
+
+expect Deflate.Level.all.map(|level| level.to_u64()) == [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]

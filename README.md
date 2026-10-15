@@ -53,6 +53,15 @@ See [examples](examples/) for a runnable program.
 
 Levels run from 0 (store the input uncompressed) to 12 (search hardest), and each one selects a parser: level 1 uses a hash-table matchfinder, 2 to 4 are greedy, 5 to 9 are lazy, and 10 to 12 find a minimum-cost path through every match the binary-tree matchfinder can see. Level 6 is the usual default.
 
+A level is a `Deflate.Level`, and a number literal becomes one wherever one is expected, so `Deflate.compress(bytes, 6)` just works and `Deflate.compress(bytes, 13)` is a compile-time error. A level only known at runtime, such as one read from a command-line flag, goes through `Deflate.Level.from_u64`, which returns `Err(OutOfRange)` for anything above 12:
+
+```roc
+match Deflate.Level.from_u64(n) {
+    Ok(level) => Deflate.compress(bytes, level)
+    Err(OutOfRange) => ...
+}
+```
+
 Because the output is byte-identical to libdeflate's, the compressed size at a given level is exactly libdeflate's compressed size. What differs is how long it takes to get there. Across the twelve files of the [Silesia corpus](http://mattmahoney.net/dc/silesia.html), median throughput over uncompressed bytes:
 
 | Level | Parser       | libdeflate | roc-deflate | libdeflate is |
