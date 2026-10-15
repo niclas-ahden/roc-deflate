@@ -45,13 +45,17 @@ Inflate := [].{
 		var $overread = 0.U64
 		var $more_blocks = True
 
-		# The two big decode tables are built fresh for every block but into
+		# The two big decode tables are rebuilt for every dynamic block but into
 		# the same allocations, which round-trip through build_block_tables
 		# and inflate_block back here. Rebuilding writes every entry a decode
 		# can read, so the leftover entries never need clearing.
 		var $litlen_scratch = List.repeat(0.U32, Inflate.litlen_enough)
 		var $offset_scratch = List.repeat(0.U32, Inflate.offset_enough)
-
+		# Whether the scratch lists still hold the static tables, as they do
+		# after a static block until a dynamic one overwrites them, so a run
+		# of static blocks builds them once. libdeflate keeps the same flag.
+		var $static_loaded = False
+		var $static_litlen_mask = 0.U64
 
 		while $more_blocks {
 			r0 = Inflate.refill(input, $in_next, $bitbuf, $bitsleft, $overread)?
@@ -107,18 +111,21 @@ Inflate := [].{
 						$bitbuf = header.bitbuf
 						$bitsleft = header.bitsleft
 						$overread = header.overread
+						$static_loaded = False
 						Inflate.build_block_tables(header.lens, header.num_litlen_syms, header.num_offset_syms, $litlen_scratch, $offset_scratch) ? |_| Inflate.bad_data(header.bitsleft, header.overread)
 					} else {
-						# Static Huffman block: the fixed code lengths from
-						# RFC 1951 section 3.2.6.
+						# Static Huffman block, built only when a dynamic block
+						# has overwritten the tables since the last one.
 						$bitbuf = $bitbuf.shr_zf_wrap(3)
 						$bitsleft = $bitsleft - 3
-						lens = List.repeat(8.U8, 144)
-							.concat(List.repeat(9.U8, 112))
-							.concat(List.repeat(7.U8, 24))
-							.concat(List.repeat(8.U8, 8))
-							.concat(List.repeat(5.U8, 32))
-						Inflate.build_block_tables(lens, 288, 32, $litlen_scratch, $offset_scratch)?
+						if $static_loaded {
+							{ litlen: $litlen_scratch, litlen_mask: $static_litlen_mask, offset: $offset_scratch }
+						} else {
+							built = Inflate.build_block_tables(Inflate.static_lens, 288, 32, $litlen_scratch, $offset_scratch)?
+							$static_loaded = True
+							$static_litlen_mask = built.litlen_mask
+							built
+						}
 					}
 
 				decoded = Inflate.inflate_block(input, $in_next, $bitbuf, $bitsleft, $overread, $out, out_start, tables)?
@@ -567,6 +574,15 @@ Inflate := [].{
 	}
 
 	BlockTables : { litlen : List(U32), litlen_mask : U64, offset : List(U32) }
+
+	## The fixed code lengths of RFC 1951 section 3.2.6, which every static
+	## Huffman block uses.
+	static_lens : List(U8)
+	static_lens = List.repeat(8.U8, 144)
+		.concat(List.repeat(9.U8, 112))
+		.concat(List.repeat(7.U8, 24))
+		.concat(List.repeat(8.U8, 8))
+		.concat(List.repeat(5.U8, 32))
 
 	## Build the litlen and offset decode tables for one block's code lengths,
 	## where `lens` holds the litlen lengths followed by the offset lengths.
