@@ -69,7 +69,7 @@ CompressFast := [].{
 				if remaining < DeflateTables.max_match_len {
 					$max_len = remaining
 					if $max_len < HtMatchfinder.required_nbytes {
-						# Too little left to hash; the rest are literals.
+						# Too little left to hash, so the rest are literals.
 						var $left = $max_len
 						while $left > 0 {
 							lit = (List.get(input, $in_next) ?? 0).to_u64()

@@ -219,8 +219,8 @@ HcMatchfinder := [].{
 	## this returns the bare record instead, though the work is the same.
 	skip_bytes : List(U16), U64, U64, U64, List(U8), U64, U64, U64 -> Try(State, [])
 	skip_bytes = |tab_0, base_0, nh3_0, nh4_0, input, in_next0, in_end, count| {
-		# The run and the four bytes hashed past it stay inside the input;
-		# stated against the input's own length, that lets the hash read on
+		# The run and the four bytes hashed past it stay inside the input.
+		# Stated against the input's own length, that lets the hash read on
 		# every skipped byte drop its bounds test.
 		end = in_next0.plus_wrap(count)
 		if end.plus_wrap(5) > in_end or in_end > List.len(input) {
@@ -235,7 +235,7 @@ HcMatchfinder := [].{
 			var $base = base_0
 			var $cur_pos = in_next0.minus_wrap(base_0).to_i64_wrap()
 			# One slide covers the whole run, since a match is far shorter than
-			# a window; positions past the slide go in already relative to the
+			# a window. Positions past the slide go in already relative to the
 			# new base.
 			if $cur_pos.plus_wrap(count.to_i64_wrap()).minus_wrap(1) >= Matchfinder.window_size.to_i64_wrap() {
 				$tab = Matchfinder.rebase_nodes($tab)

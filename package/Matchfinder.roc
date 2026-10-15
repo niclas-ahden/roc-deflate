@@ -53,7 +53,7 @@ Matchfinder := [].{
 	## Whole words are compared at a time and the first differing word is
 	## located by its lowest set bit, so a mismatch costs one count rather than
 	## a byte loop. The caller guarantees `max_len` bytes are readable at both
-	## positions; the entry test states that guarantee where the compiler can
+	## positions. The entry test states that guarantee where the compiler can
 	## see it, and every word read below is then provably in bounds: each read
 	## index is `str_at + len` or `match_at + len` with `len + 8 <= max_len`,
 	## the string side stays within the tested `str_at + max_len`, and the

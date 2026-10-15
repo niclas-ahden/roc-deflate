@@ -54,7 +54,7 @@ HtMatchfinder := [].{
 	longest_match : List(U16), U64, U64, List(U8), U64, U64, U64 -> Match
 	longest_match = |tab_0, base_0, hash_0, input, in_next, max_len, nice_len| {
 		# The caller leaves at least the hash's bytes readable past the current
-		# position; stating that here lets the reads at and just past the
+		# position. Stating that here lets the reads at and just past the
 		# position skip their bounds tests.
 		if in_next + max_len > List.len(input) or max_len < HtMatchfinder.required_nbytes {
 			crash "HtMatchfinder.longest_match: match window outside the input"
@@ -175,8 +175,8 @@ HtMatchfinder := [].{
 			# Wrapping arithmetic: the run was bounded against the input above and
 			# a bucket index is a masked hash doubled, so nothing here can overflow
 			# and a checked add would only cost a branch per byte.
-			# The run ends at least `required_nbytes` before the input does;
-			# taking the smaller of the two as the limit states that where the
+			# The run ends at least `required_nbytes` before the input does.
+			# Taking the smaller of the two as the limit states that where the
 			# hash read below can use it.
 			last_start = in_end - HtMatchfinder.required_nbytes
 			limit = if end < last_start { end } else { last_start }

@@ -412,7 +412,7 @@ CompressOptimal := [].{
 	find_min_cost_path : U64, List(U32), List(U32), U64, List(U32), List(U32), List(U32), List(U32), List(U32) -> PathResult
 	find_min_cost_path = |block_length, cache_len, cache_off, cache_end, node_cost_0, node_item_0, cost_literal, cost_length, cost_offset_slot| {
 		top = CompressOptimal.node_top(block_length)
-		# The length table has one cost per match length; stating its size here
+		# The length table has one cost per match length. Stating its size here
 		# lets every per-length read below skip its bounds test.
 		if List.len(cost_length) < DeflateTables.max_match_len + 1 {
 			crash "CompressOptimal.find_min_cost_path: length cost table too short"
@@ -466,14 +466,14 @@ CompressOptimal := [].{
 					offset_cost = List.get(cost_offset_slot, DeflateTables.offset_slot(offset)) ?? 0
 					this_len = (List.get(cache_len, $m) ?? 0).to_u64()
 					# A cached match is between the minimum and maximum match
-					# lengths; stating that bounds every length tried below, so
+					# lengths. Stating that bounds every length tried below, so
 					# the per-length table reads skip their bounds tests.
 					if this_len > DeflateTables.max_match_len or this_len < DeflateTables.min_match_len {
 						crash "CompressOptimal.find_min_cost_path: cached match length out of range"
 					} else {
 					}
 					# Lengths run from the one after the previous match's up to
-					# this one's; the counter starts where the previous match left
+					# this one's. The counter starts where the previous match left
 					# off so each length is costed once.
 					len_count = this_len - (DeflateTables.min_match_len - 1)
 					while $k < len_count {
@@ -743,7 +743,7 @@ CompressOptimal := [].{
 			var $next_observation = $in_next
 
 			# The near-optimal parse does not itself respect a minimum match
-			# length, since it can price short matches properly; the minimum is
+			# length, since it can price short matches properly. The minimum is
 			# only there to keep the block-splitting statistics honest. If the
 			# previous block did best with no matches at all, the data is
 			# probably more literal-heavy than the heuristic believes, so
@@ -949,7 +949,7 @@ CompressOptimal := [].{
 			if $change_detected == 1 and $have_prev_end_block_check == 1 {
 				# The block is ending because a recent stretch of data differs
 				# from the rest of it. Ending at the current position would put
-				# that stretch in this block; there is time here to do better,
+				# that stretch in this block. There is time here to do better,
 				# so rewind to just before it and carry the work already done
 				# on those positions into the next block.
 				$block_end = $prev_end_block_check

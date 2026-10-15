@@ -31,7 +31,7 @@ main! = |args| {
 	# `+ args.len()` keeps the corpus size runtime-dependent. With a literal
 	# length, TextGen.generate and the Deflate.compress calls below become fully
 	# compile-time-known, and the compiler evaluates the whole compression at
-	# build time — which balloons to ~45 GB and OOM-kills the build. args.len()
+	# build time, which balloons to ~45 GB and OOM-kills the build. args.len()
 	# is 0 with no arguments, so the corpus stays deterministic across runs.
 	corpus = TextGen.generate(42, 1000000 + args.len())
 	tmp = Env.temp_dir!()

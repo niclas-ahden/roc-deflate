@@ -9,10 +9,10 @@ import HcMatchfinder
 ##
 ## Greedy takes the longest match at each position. Lazy first checks whether
 ## the next position starts a better one and, if so, emits a literal and moves
-## there instead; lazy2 looks one position further still. The comparison is not
-## on length alone: a longer match only wins if it beats the incumbent by
-## enough to pay for the literal, and a nearer offset counts in the incumbent's
-## favour, since near offsets cost fewer bits.
+## there instead, and lazy2 looks one position further still. The comparison
+## is not on length alone: a longer match only wins if it beats the incumbent
+## by enough to pay for the literal, and a nearer offset counts in the
+## incumbent's favour, since near offsets cost fewer bits.
 CompressLazy := [].{
 
 	## Blocks shorter than this are not worth their Huffman header.
@@ -39,7 +39,7 @@ CompressLazy := [].{
 	## data uses.
 	##
 	## Data with many distinct literals has expensive literals, so short
-	## matches pay off; data with few has cheap literals, so they do not. A
+	## matches pay off. Data with few has cheap literals, so they do not. A
 	## shallow search cannot find long matches reliably, which caps the minimum
 	## as well.
 	choose_min_match_len : U64, U64 -> U64
@@ -138,7 +138,7 @@ CompressLazy := [].{
 	## The test is the sum of absolute differences between the two
 	## distributions, scaled so no division is needed, against a cutoff that
 	## grows with block length. Very short blocks pay a surcharge, since their
-	## header is a larger share of their cost. This only reads the counts; a
+	## header is a larger share of their cost. This only reads the counts. A
 	## caller that decides to continue the block folds them with
 	## `merge_observations` itself.
 	do_end_block_check : List(U32), List(U32), U64, U64, U64 -> U64
@@ -562,8 +562,8 @@ CompressLazy := [].{
 					$litrunlen = 0
 
 					# Insert the positions the match covers. A run that crosses a window
-					# slide or reaches the input's last bytes takes the general routine;
-					# every other run is inserted here, where the tables and hashes are
+					# slide or reaches the input's last bytes takes the general routine.
+					# Every other run is inserted here, where the tables and hashes are
 					# already at hand.
 					skip_end = $in_next.plus_wrap($found.length)
 					if in_end < 9
@@ -581,7 +581,7 @@ CompressLazy := [].{
 						$nh3 = skipped.next_hash3
 						$nh4 = skipped.next_hash4
 					} else {
-						# The run ends at least five bytes before the input does; taking
+						# The run ends at least five bytes before the input does. Taking
 						# the smaller of the two as the limit states that where the hash
 						# read below can use it.
 						skip_limit = skip_end.min(in_end - 5)
@@ -958,7 +958,7 @@ CompressLazy := [].{
 
 				if $found.length < $min_len
 					or ($found.length == DeflateTables.min_match_len and $found.offset > 8192) {
-					# No match worth taking; emit a literal.
+					# No match worth taking, so emit a literal.
 					lit = (List.get(input, $in_next) ?? 0).to_u64()
 					lit_count = (List.get($freqs_litlen, lit) ?? 0).plus_wrap(1)
 					$freqs_litlen = match List.set($freqs_litlen, lit, lit_count) {

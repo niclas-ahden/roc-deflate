@@ -7,8 +7,8 @@ import DeflateTables
 ## are decoded with a first-level table indexed by the next `table_bits` input
 ## bits (plus one level of subtables for the rare longer codewords), and the
 ## bitstream is kept in a 64-bit buffer refilled eight bytes at a time. Each
-## decode table entry packs everything a decode step needs -- symbol or base
-## value, codeword length, and extra-bit count -- so the hot loop is a table
+## decode table entry packs everything a decode step needs (symbol or base
+## value, codeword length, and extra-bit count), so the hot loop is a table
 ## load, a shift, and a subtract, instead of a walk over code lengths one bit
 ## at a time.
 Inflate := [].{
@@ -138,7 +138,7 @@ Inflate := [].{
 
 	# --- Input bitstream ---
 	#
-	# `bitbuf` holds unconsumed bits with the next bit at bit 0; `bitsleft`
+	# `bitbuf` holds unconsumed bits with the next bit at bit 0, and `bitsleft`
 	# counts them. A refill loads eight input bytes at once when they exist
 	# (`U64.from_le_bytes` and shifting by the current fill, advancing the
 	# cursor by however many whole bytes fit), and falls back to byte-at-a-time
@@ -151,7 +151,7 @@ Inflate := [].{
 	refill : List(U8), U64, U64, U64, U64 -> Try(RefillState, [CorruptData, UnexpectedEnd])
 	refill = |input, in_next, bitbuf, bitsleft_raw, overread| {
 		# Consumes subtract whole decode entries from `bitsleft`, so only its
-		# low byte is meaningful; recover the exact count once here.
+		# low byte is meaningful. Recover the exact count once here.
 		bitsleft = bitsleft_raw.bitwise_and(255)
 		if List.len(input) - in_next.min(List.len(input)) >= 8 {
 			word = U64.from_le_bytes(input, in_next) ?? 0
@@ -292,7 +292,7 @@ Inflate := [].{
 	BuiltTable : { table : List(U32), table_bits : U64 }
 
 	## Build a decode table for one canonical Huffman code from its codeword
-	## lengths. Ported from `build_decode_table`; see that function for the
+	## lengths. Ported from `build_decode_table`. See that function for the
 	## details of subtable layout and the incremental table-doubling fill.
 	##
 	## When `dynamic_table_bits` is set, `table_bits` is treated as a maximum
@@ -300,14 +300,14 @@ Inflate := [].{
 	## does this for the litlen table only).
 	##
 	## `scratch` supplies the table's backing storage, sized `enough` for the
-	## code by its caller; every entry a decode can reach is written before
+	## code by its caller. Every entry a decode can reach is written before
 	## the table is returned, so a previous block's table can be passed back
 	## in as it stands.
 	build_decode_table : List(U8), U64, List(U32), U64, U64, Bool, List(U32) -> Try(BuiltTable, [CorruptData, UnexpectedEnd])
 	build_decode_table = |lens, num_syms, decode_results, max_table_bits, max_codeword_len_limit, dynamic_table_bits, scratch| {
 		# The per-symbol loops below index `lens` by every symbol under
 		# `num_syms` and the per-length tables by codeword lengths up to
-		# `max_codeword_len_limit`; bounding everything once up front keeps
+		# `max_codeword_len_limit`. Bounding everything once up front keeps
 		# each loop's element accesses in bounds.
 		if List.len(lens) < num_syms {
 			return Err(CorruptData)
@@ -344,7 +344,7 @@ Inflate := [].{
 		# Sort symbols by codeword length, then symbol value, via a counting
 		# sort, computing the used codespace in the same pass. The offsets
 		# table is sized by the length limit so any guarded length indexes it
-		# in bounds; entries past the trimmed maximum stay zero and unread.
+		# in bounds. Entries past the trimmed maximum stay zero and unread.
 		var $offsets = List.repeat(0.U64, max_codeword_len_limit + 2)
 		if List.len($offsets) <= max_codeword_len_limit {
 			return Err(CorruptData)
@@ -385,7 +385,7 @@ Inflate := [].{
 			}
 			$sym = $sym + 1
 		}
-		# Index of the first used symbol; everything before it has length 0.
+		# Index of the first used symbol. Everything before it has length 0.
 		first_used = (List.get($offsets, 0) ?? 0)
 
 		full = 1.U64.shl_wrap($max_codeword_len.to_u8_wrap())
@@ -395,7 +395,7 @@ Inflate := [].{
 
 		if $codespace_used < full {
 			# An incomplete code is allowed only when empty or when it has a
-			# single codeword of length 1; either maps to a complete
+			# single codeword of length 1. Either maps to a complete
 			# one-symbol code so the decoder needs no error entries.
 			single_sym =
 				if $codespace_used == 0 {
@@ -598,7 +598,7 @@ Inflate := [].{
 	## Read a dynamic Huffman block's header: the counts, the precode, and the
 	## run-length-encoded litlen and offset codeword lengths.
 	##
-	## On entry the bitbuffer still holds BFINAL and BTYPE; they are consumed
+	## On entry the bitbuffer still holds BFINAL and BTYPE. They are consumed
 	## here together with the counts, exactly as in the template.
 	read_dynamic_header : List(U8), U64, U64, U64, U64 -> Try(DynamicHeader, [CorruptData, UnexpectedEnd])
 	read_dynamic_header = |input, in_next0, bitbuf0, bitsleft0, overread0| {
@@ -743,7 +743,7 @@ Inflate := [].{
 		litlen_mask = tables.litlen_mask
 		offset_table = tables.offset
 		# Every root litlen lookup masks with `litlen_mask` and every root
-		# offset lookup masks with 255; bounding both tables once keeps
+		# offset lookup masks with 255. Bounding both tables once keeps
 		# those loads in bounds through the whole block.
 		if litlen_mask >= List.len(litlen_table) {
 			return Err(CorruptData)
@@ -761,7 +761,7 @@ Inflate := [].{
 		var $out = out0
 		var $done = 0.U64
 
-		# ── Fast loop ── decode several symbols per unguarded word refill,
+		# Fast loop: decode several symbols per unguarded word refill,
 		# decoding ahead by one: every back edge refills and preloads the next
 		# symbol's entry, so its table-load latency overlaps the match copy.
 		# The 24-byte margin covers any two refills an iteration can perform
@@ -771,7 +771,7 @@ Inflate := [].{
 		# holds on every path, so the compiler's range proofs discharge each
 		# refill's bounds test without reasoning about which paths exclude
 		# each other.
-		# The entry cursor is caller-controlled; bounding it once lets the
+		# The entry cursor is caller-controlled. Bounding it once lets the
 		# compiler's range proofs discharge the margin addition's overflow
 		# check on every iteration below.
 		if in_next0 > in_len {
@@ -856,7 +856,7 @@ Inflate := [].{
 				length = $entry.shr_zf_wrap(16).to_u64()
 					+ $saved_bitbuf.bitwise_and(len_mask).shr_zf_wrap(len_codeword_bits)
 
-				# The offset entry is looked up from the bits in hand; whether a
+				# The offset entry is looked up from the bits in hand. Whether a
 				# refill is needed before its extra bits is decided afterwards. The
 				# thresholds leave a table index of bits after the offset, for the
 				# preload below.
@@ -906,7 +906,7 @@ Inflate := [].{
 			} else {}
 		}
 
-		# ── Careful loop ── one symbol per iteration, tail of input.
+		# Careful loop: one symbol per iteration, for the tail of the input.
 		while $done == 0 {
 			if $bitsleft.bitwise_and(255) < 32 {
 				r = Inflate.refill(input, $in_next, $bitbuf, $bitsleft, $overread)?
@@ -973,7 +973,7 @@ Inflate := [].{
 
 
 				# The match is `length` bytes starting `offset` back in the
-				# output; reading through freshly appended bytes is what
+				# output. Reading through freshly appended bytes is what
 				# makes an overlapping range repeat, exactly the copy
 				# `append_range_within` performs.
 				$out = match List.append_range_within($out, out_len - offset, length) {

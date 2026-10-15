@@ -284,7 +284,7 @@ BtMatchfinder := [].{
 	## covered by an already-chosen long match are passed over.
 	##
 	## The tree still has to be walked and rebuilt, so this is nearly the same
-	## work as a search; the walk simply stops at `nice_len` rather than at the
+	## work as a search. The walk simply stops at `nice_len` rather than at the
 	## caller's maximum length.
 	##
 	## The `Try` cannot fail, for the reason [BtMatchfinder.get_matches] gives.

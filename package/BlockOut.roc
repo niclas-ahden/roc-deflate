@@ -23,7 +23,7 @@ BlockOut := [].{
 	## One run of literals followed by a match, or by the end of the block.
 	##
 	## `litrunlen_and_length` packs the literal count in its low 23 bits and
-	## the following match's length above them; a length of zero marks the last
+	## the following match's length above them. A length of zero marks the last
 	## sequence in a block. The literals themselves are not stored, since they
 	## are read back from the uncompressed input.
 	Sequence : {
@@ -516,7 +516,7 @@ BlockOut := [].{
 			$sym = $sym + 1
 		}
 
-		# Offsets; the static offset code is five bits flat.
+		# Offsets: the static offset code is five bits flat.
 		$sym = 0
 		while $sym < 30 {
 			extra = (List.get(DeflateTables.extra_offset_bits, $sym) ?? 0).to_u64()

@@ -49,7 +49,7 @@ check! = |name, corpus, level, ceiling| {
 	if size <= ceiling {
 		Stdout.line!("  ${name}: ${size.to_str()} bytes (ceiling ${ceiling.to_str()})")
 	} else {
-		Stdout.line!("  ${name}: REGRESSION — ${size.to_str()} > ceiling ${ceiling.to_str()}")?
+		Stdout.line!("  ${name}: REGRESSION (${size.to_str()} > ceiling ${ceiling.to_str()})")?
 		Err(Exit(1))
 	}
 }

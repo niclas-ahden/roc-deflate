@@ -25,9 +25,9 @@ Deflate := [].{
 	## This never fails. It crashes only on a bug in this package.
 	compress : List(U8), U64 -> List(U8)
 	compress = |input, level| {
-		# Inputs this short are not worth trying to compress; the higher the
+		# Inputs this short are not worth trying to compress. The higher the
 		# level, the more it is worth bothering.
-		# Level 0 never compresses; above it, the higher the level the more
+		# Level 0 never compresses. Above it, the higher the level the more
 		# it is worth bothering with a very short input.
 		max_passthrough = if level == 0 {
 			18446744073709551615

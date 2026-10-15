@@ -53,7 +53,7 @@ See [examples](examples/) for a runnable program.
 
 Levels run from 0 (store the input uncompressed) to 12 (search hardest), and each one selects a parser: level 1 uses a hash-table matchfinder, 2 to 4 are greedy, 5 to 9 are lazy, and 10 to 12 find a minimum-cost path through every match the binary-tree matchfinder can see. Level 6 is the usual default.
 
-Because the output is byte-identical to libdeflate's, the compressed size at a given level is exactly libdeflate's compressed size; what differs is how long it takes to get there. Across the twelve files of the [Silesia corpus](http://mattmahoney.net/dc/silesia.html), median throughput over uncompressed bytes:
+Because the output is byte-identical to libdeflate's, the compressed size at a given level is exactly libdeflate's compressed size. What differs is how long it takes to get there. Across the twelve files of the [Silesia corpus](http://mattmahoney.net/dc/silesia.html), median throughput over uncompressed bytes:
 
 | Level | Parser       | libdeflate | roc-deflate | libdeflate is |
 | ----- | ------------ | ---------- | ----------- | ------------- |

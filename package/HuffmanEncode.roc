@@ -10,7 +10,7 @@ import DeflateTables
 ##     only the top counter's contents handed to a heapsort, because most
 ##     frequencies are small
 ##   - the tree keeps only non-leaf nodes, stored in the same array as the
-##     frequencies, holding parent indices rather than child pointers; a
+##     frequencies, holding parent indices rather than child pointers, because a
 ##     canonical code needs only the number of leaves at each depth, which
 ##     that stripped tree yields
 ##   - the length limit is met by clamping depths as they are computed rather
@@ -113,7 +113,7 @@ HuffmanEncode := [].{
 	## with zero frequency and setting their codeword lengths to zero.
 	##
 	## Most frequencies are small, so a counting sort over one counter per
-	## symbol places nearly every symbol directly; only the symbols that landed
+	## symbol places nearly every symbol directly. Only the symbols that landed
 	## in the saturating top counter need the comparison sort.
 	sort_symbols : U64, List(U32), List(U8), List(U32) -> SortedSymbols
 	sort_symbols = |num_syms, freqs, lens0, symout0| {
@@ -405,7 +405,7 @@ HuffmanEncode := [].{
 
 	## Build a length-limited canonical Huffman code for one alphabet.
 	##
-	## The caller supplies the scratch lists for the lengths and codewords; the
+	## The caller supplies the scratch lists for the lengths and codewords. The
 	## codeword list doubles as the sort and tree array while the code is being
 	## built, exactly as libdeflate reuses that storage.
 	make_code : U64, U64, List(U32), List(U8), List(U32) -> Code
