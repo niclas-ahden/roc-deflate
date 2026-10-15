@@ -12,6 +12,10 @@ import CompressOptimal
 ## it: the level selects the parser and how hard it searches.
 
 ## Errors that can occur when decompressing a DEFLATE stream.
+##
+## `UnexpectedEnd` means the input ran out before the final block ended, so
+## any truncated stream, an empty input included, reports it. `CorruptData`
+## means the bytes that are there are not a valid DEFLATE stream.
 DeflateError : [
 	CorruptData,
 	UnexpectedEnd,
@@ -75,6 +79,10 @@ Deflate := [].{
 	## the decompressor never reallocates mid-stream, and a returned list can
 	## be emptied with its capacity kept and passed back in for the next
 	## stream.
+	##
+	## The stream cannot refer back into the bytes `out` already holds. A
+	## match that reaches past the start of the stream's own output is
+	## `CorruptData`, the same as with an empty `out`.
 	decompress_into : List(U8), List(U8) -> Try(List(U8), DeflateError)
 	decompress_into = |input, out|
 		Inflate.decompress_into(input, out)

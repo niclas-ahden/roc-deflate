@@ -29,9 +29,14 @@ Inflate := [].{
 	## the decompressor never reallocates mid-stream, and a returned list can
 	## be emptied with its capacity kept and passed back in to decompress the
 	## next stream with no fresh allocation.
+	##
+	## The bytes already in `out` are not part of the stream, so a match that
+	## reaches back past the stream's own output is corrupt, just as it is
+	## when `out` starts empty.
 	decompress_into : List(U8), List(U8) -> Try(List(U8), [CorruptData, UnexpectedEnd])
 	decompress_into = |input, out| {
 		in_len = List.len(input)
+		out_start = List.len(out)
 
 		var $out = out
 		var $in_next = 0.U64
@@ -61,11 +66,13 @@ Inflate := [].{
 			if block_type == 0 {
 				# Stored block: realign to the byte after the header, then
 				# copy LEN raw bytes. Any refilled-but-unconsumed whole
-				# bytes are returned to the input cursor first.
+				# bytes are returned to the input cursor first. If the header
+				# itself came from the implicit zero bytes, the input ended
+				# before the block did.
 				$bitsleft = $bitsleft - 3
 				unread = $bitsleft.shr_zf_wrap(3)
 				if $overread > unread {
-					return Err(CorruptData)
+					return Err(UnexpectedEnd)
 				} else {}
 				$in_next = $in_next - (unread - $overread)
 				$overread = 0
@@ -100,7 +107,7 @@ Inflate := [].{
 						$bitbuf = header.bitbuf
 						$bitsleft = header.bitsleft
 						$overread = header.overread
-						Inflate.build_block_tables(header.lens, header.num_litlen_syms, header.num_offset_syms, $litlen_scratch, $offset_scratch)?
+						Inflate.build_block_tables(header.lens, header.num_litlen_syms, header.num_offset_syms, $litlen_scratch, $offset_scratch) ? |_| Inflate.bad_data(header.bitsleft, header.overread)
 					} else {
 						# Static Huffman block: the fixed code lengths from
 						# RFC 1951 section 3.2.6.
@@ -114,7 +121,7 @@ Inflate := [].{
 						Inflate.build_block_tables(lens, 288, 32, $litlen_scratch, $offset_scratch)?
 					}
 
-				decoded = Inflate.inflate_block(input, $in_next, $bitbuf, $bitsleft, $overread, $out, tables)?
+				decoded = Inflate.inflate_block(input, $in_next, $bitbuf, $bitsleft, $overread, $out, out_start, tables)?
 				$in_next = decoded.in_next
 				$bitbuf = decoded.bitbuf
 				$bitsleft = decoded.bitsleft
@@ -147,6 +154,18 @@ Inflate := [].{
 	# After either refill at least 56 bits are available.
 
 	RefillState : { in_next : U64, bitbuf : U64, bitsleft : U64, overread : U64 }
+
+	## The error for a check that failed with the bitstream in this state.
+	## A failure after any of the implicit zero bytes were consumed means the
+	## input ended before the stream did, whatever the zeros happened to
+	## decode as, so only a failure on real input bits is corrupt data.
+	bad_data : U64, U64 -> [CorruptData, UnexpectedEnd]
+	bad_data = |bitsleft, overread|
+		if overread > bitsleft.bitwise_and(255).shr_zf_wrap(3) {
+			UnexpectedEnd
+		} else {
+			CorruptData
+		}
 
 	refill : List(U8), U64, U64, U64, U64 -> Try(RefillState, [CorruptData, UnexpectedEnd])
 	refill = |input, in_next, bitbuf, bitsleft_raw, overread| {
@@ -641,7 +660,7 @@ Inflate := [].{
 			7,
 			False,
 			List.repeat(0.U32, Inflate.precode_enough),
-		)?
+		) ? |_| Inflate.bad_data($bitsleft, $overread)
 		precode_table = precode_built.table
 		# Every precode lookup below masks with 127, so bounding the table
 		# once keeps the per-symbol reads in bounds.
@@ -679,7 +698,7 @@ Inflate := [].{
 			} else if presym == 16 {
 				# Repeat the previous length 3-6 times.
 				if $n == 0 {
-					return Err(CorruptData)
+					return Err(Inflate.bad_data($bitsleft, $overread))
 				} else {}
 				rep_val = List.get($lens, $n - 1) ?? 0
 				rep_count = 3 + $bitbuf.bitwise_and(3)
@@ -710,7 +729,7 @@ Inflate := [].{
 		}
 
 		if $n != num_lens {
-			return Err(CorruptData)
+			return Err(Inflate.bad_data($bitsleft, $overread))
 		} else {}
 
 		Ok({
@@ -737,8 +756,11 @@ Inflate := [].{
 	## Decode one Huffman block's symbols into the output. Ported from the
 	## template's generic loop: one refill per iteration covers the longest
 	## litlen codeword, its extra bits, and an offset table preload.
-	inflate_block : List(U8), U64, U64, U64, U64, List(U8), BlockTables -> Try(InflateResult, [CorruptData, UnexpectedEnd])
-	inflate_block = |input, in_next0, bitbuf0, bitsleft0, overread0, out0, tables| {
+	##
+	## `out_start` is where the stream's output begins in `out0`. A match may
+	## reach back across earlier blocks but never before that.
+	inflate_block : List(U8), U64, U64, U64, U64, List(U8), U64, BlockTables -> Try(InflateResult, [CorruptData, UnexpectedEnd])
+	inflate_block = |input, in_next0, bitbuf0, bitsleft0, overread0, out0, out_start, tables| {
 		litlen_table = tables.litlen
 		litlen_mask = tables.litlen_mask
 		offset_table = tables.offset
@@ -886,8 +908,10 @@ Inflate := [].{
 				$bitbuf = $bitbuf.shr_zf_wrap($off_entry.to_u8_wrap())
 				$bitsleft = $bitsleft.minus_wrap($off_entry.to_u64())
 
+				# The fast loop stops 24 bytes short of the input end, so every
+				# bit it has consumed is real and a bad offset is corrupt data.
 				out_len = List.len($out)
-				if offset > out_len or offset == 0 {
+				if offset > out_len - out_start or offset == 0 {
 					return Err(CorruptData)
 				} else {}
 
@@ -967,8 +991,8 @@ Inflate := [].{
 				$bitsleft = $bitsleft.minus_wrap($off_entry.to_u64())
 
 				out_len = List.len($out)
-				if offset > out_len or offset == 0 {
-					return Err(CorruptData)
+				if offset > out_len - out_start or offset == 0 {
+					return Err(Inflate.bad_data($bitsleft, $overread))
 				} else {}
 
 
