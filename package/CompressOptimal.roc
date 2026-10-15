@@ -63,11 +63,17 @@ CompressOptimal := [].{
 		+ DeflateTables.max_match_len
 		- 1
 
-	## One node per position plus one for the end of the block. The longest a
-	## block can get is the soft maximum plus the shortest block that could
-	## follow it, since a shorter remainder is folded into the current block.
+	## The most nodes a path's tables hold: one per position of the longest
+	## block, then the end of the block and every node past it that a match
+	## found near the end could reach (see `node_top`). The longest a block can
+	## get is the soft maximum plus one byte short of the shortest block that
+	## could follow it, since a shorter remainder is folded into the current
+	## block.
 	optimum_nodes_size : U64
-	optimum_nodes_size = CompressLazy.soft_max_block_length + CompressLazy.min_block_length
+	optimum_nodes_size = CompressLazy.soft_max_block_length
+		+ CompressLazy.min_block_length
+		- 1
+		+ DeflateTables.max_match_len
 
 	## Assumed cost of an offset symbol when nothing better is known, which is
 	## `-log2(1/30)` in sixteenths of a bit, thirty being the offset symbols
@@ -504,10 +510,16 @@ CompressOptimal := [].{
 
 	## The index of node 0 in a path's node tables, which hold node `n` at
 	## `top - n`: the highest node a match found near the end of the block can
-	## reach, capped at the table size.
+	## reach.
+	##
+	## libdeflate caps this at the length of its fixed node array. The cap only
+	## takes effect for a block that runs to the end of the input, where no
+	## match reaches past the end, so nothing there reads the missing nodes.
+	## Here the cost scan's bounds proof needs every one of them to exist, and
+	## the tables grow as needed, so there is no cap.
 	node_top : U64 -> U64
 	node_top = |block_length|
-		block_length.minus_wrap(1).plus_wrap(DeflateTables.max_match_len).min(CompressOptimal.optimum_nodes_size - 1)
+		block_length.minus_wrap(1).plus_wrap(DeflateTables.max_match_len)
 
 	## Count the symbols a chosen path uses and build the Huffman codes for
 	## them, walking the path forwards this time.
