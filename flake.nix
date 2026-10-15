@@ -42,7 +42,7 @@
 
         devShells = {
           default = pkgs.mkShell {
-            # tests.roc times gzip and reads it back; benchmark/run.roc uses
+            # tests.roc times gzip and reads it back; benchmark/corpus.sh uses
             # curl, unzip, and sha256sum (coreutils) to fetch and verify the
             # Silesia corpus. Providing them here means the scripts never assume
             # host tools, and cacert lets curl reach the mirror over HTTPS.
