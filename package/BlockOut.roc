@@ -297,18 +297,6 @@ BlockOut := [].{
 		static_offset_codewords : List(U32),
 	}
 
-	## Choose the cheapest of the three block types and write the block.
-	##
-	## The cost of each type is computed in bits before anything is written,
-	## which is what lets the writer commit to a type and then emit the whole
-	## block without re-checking anything. Ties prefer uncompressed, then
-	## static, then dynamic, as libdeflate does.
-	##
-	## The chosen literals and matches arrive one of two ways. The greedy and
-	## lazy parsers hand over `seqs`, runs of literals each followed by a match,
-	## with the literals themselves read back out of the input. The near-optimal
-	## parser hands over `items`, one packed entry per position along its chosen
-	## path; `use_items` selects between them.
 	## A codeword and its length in one word: the codeword in the low half
 	## and the length above it. The writer then looks each symbol up once and
 	## keeps one table live instead of two.
@@ -469,6 +457,18 @@ BlockOut := [].{
 		{ out: $out, bitbuf: $bitbuf, bitcount: $bitcount }
 	}
 
+	## Choose the cheapest of the three block types and write the block.
+	##
+	## The cost of each type is computed in bits before anything is written,
+	## which is what lets the writer commit to a type and then emit the whole
+	## block without re-checking anything. Ties prefer uncompressed, then
+	## static, then dynamic, as libdeflate does.
+	##
+	## The chosen literals and matches arrive one of two ways. The greedy and
+	## lazy parsers hand over `seqs`, runs of literals each followed by a match,
+	## with the literals themselves read back out of the input. The near-optimal
+	## parser hands over `items`, one packed entry per position along its chosen
+	## path. `use_items` selects between them.
 	flush_block : List(U8), U64, U64, List(U8), U64, U64, List(BlockOut.Sequence), List(U32), List(U32), List(U8), List(U32), List(U8), List(U32), List(U8), List(U32), List(U8), List(U32), List(U32), U64, U64 -> FlushResult
 	flush_block = |out_0, bitbuf_0, bitcount_0, input, block_begin, block_length_0, seqs, freqs_litlen, freqs_offset, litlen_lens, litlen_codewords, offset_lens, offset_codewords, s_litlen_lens, s_litlen_codewords, s_offset_lens, s_offset_codewords, items, use_items, is_final| {
 		precode = BlockOut.precompute_huffman_header(litlen_lens, offset_lens)
@@ -715,10 +715,11 @@ BlockOut := [].{
 				$item_at = $item_at.plus_wrap(length)
 			}
 
-			packed_litlen = BlockOut.pack_codes(w_litlen_codewords, w_litlen_lens)
-			packed_full = BlockOut.pack_codes(full_codewords, full_lens)
-			packed_offset = BlockOut.pack_offsets(w_offset_codewords, w_offset_lens)
 			if use_items == 0 {
+				# Only the sequence writer reads the packed tables.
+				packed_litlen = BlockOut.pack_codes(w_litlen_codewords, w_litlen_lens)
+				packed_full = BlockOut.pack_codes(full_codewords, full_lens)
+				packed_offset = BlockOut.pack_offsets(w_offset_codewords, w_offset_lens)
 				written = BlockOut.write_sequences($out, $bitbuf, $bitcount, input, $in_next, seqs, packed_litlen, packed_full, packed_offset)
 				$out = written.out
 				$bitbuf = written.bitbuf
