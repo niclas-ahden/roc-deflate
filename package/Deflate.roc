@@ -20,7 +20,7 @@ DeflateError : [
 Deflate := [].{
 
 	## Compress bytes into a raw DEFLATE stream at the given level, 1 to 12.
-	compress : List(U8), U64 -> Try(List(U8), [CompressBug])
+	compress : List(U8), U64 -> List(U8)
 	compress = |input, level| {
 		# Inputs this short are not worth trying to compress; the higher the
 		# level, the more it is worth bothering.
@@ -63,7 +63,7 @@ Deflate := [].{
 
 	## Emit the input as stored blocks, which is what the format requires even
 	## for empty input.
-	store_uncompressed : List(U8) -> Try(List(U8), [CompressBug])
+	store_uncompressed : List(U8) -> List(U8)
 	store_uncompressed = |input| {
 		in_end = List.len(input)
 		var $out = List.with_capacity(in_end + 5 * (in_end // 65535 + 1))
@@ -71,9 +71,9 @@ Deflate := [].{
 			$out = List.append($out, 1)
 			$out = match 0xFFFF0000.U64.append_le_bytes_to($out, 4) {
 				Ok(next) => next
-				Err(_) => return Err(CompressBug)
+				Err(_) => crash "Deflate.store_uncompressed: appended more than 8 bytes"
 			}
-			Ok($out)
+			$out
 		} else {
 			var $in_next = 0.U64
 			var $storing = 1.U64
@@ -84,11 +84,11 @@ Deflate := [].{
 				$out = List.append($out, bfinal.to_u8_wrap())
 				$out = match len.append_le_bytes_to($out, 2) {
 					Ok(next) => next
-					Err(_) => return Err(CompressBug)
+					Err(_) => crash "Deflate.store_uncompressed: appended more than 8 bytes"
 				}
 				$out = match len.bitwise_not().append_le_bytes_to($out, 2) {
 					Ok(next) => next
-					Err(_) => return Err(CompressBug)
+					Err(_) => crash "Deflate.store_uncompressed: appended more than 8 bytes"
 				}
 				$out = List.append_sublist($out, input, { start: $in_next, len })
 				$in_next = $in_next + len
@@ -97,7 +97,7 @@ Deflate := [].{
 				} else {
 				}
 			}
-			Ok($out)
+			$out
 		}
 	}
 

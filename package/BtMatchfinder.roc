@@ -70,7 +70,12 @@ BtMatchfinder := [].{
 	## The tables travel as separate arguments rather than inside one record,
 	## since a record holding a list is copied when it crosses a call boundary
 	## and these tables are far larger than the search itself.
-	get_matches : List(U16), List(U16), List(U16), U64, U64, List(U8), U64, U64, U64, U64, U64, List(U32), List(U32), U64 -> Try(Advanced, [CompressBug])
+	##
+	## The result comes back in a `Try` that cannot fail. The compiler at
+	## roc-lang/roc 66c32df makes the near-optimal levels about a fifth slower
+	## when this and [BtMatchfinder.skip_byte] return the bare record instead,
+	## though the work is the same.
+	get_matches : List(U16), List(U16), List(U16), U64, U64, List(U8), U64, U64, U64, U64, U64, List(U32), List(U32), U64 -> Try(Advanced, [])
 	get_matches = |tab3_0, tab4_0, child_0, nh3, nh4, input, in_base, cur_pos, max_len, nice_len, max_search_depth, cache_len_0, cache_off_0, cache_ptr_0| {
 		# Wrapping index arithmetic throughout the search and the skip: every
 		# position touched lies in the window the caller bounded against the
@@ -99,11 +104,11 @@ BtMatchfinder := [].{
 		node3_2 = List.get($tab3, slot3.plus_wrap(1)) ?? 0
 		$tab3 = match List.set($tab3, slot3, pos) {
 			Ok(next) => next
-			Err(_) => return Err(CompressBug)
+			Err(_) => crash "BtMatchfinder.get_matches: tab3 index out of bounds"
 		}
 		$tab3 = match List.set($tab3, slot3.plus_wrap(1), node3) {
 			Ok(next) => next
-			Err(_) => return Err(CompressBug)
+			Err(_) => crash "BtMatchfinder.get_matches: tab3 index out of bounds"
 		}
 
 		if node3.to_u64() > cur_pos {
@@ -112,11 +117,11 @@ BtMatchfinder := [].{
 			if seq3 == (U32.from_le_bytes(input, at3) ?? 0).bitwise_and(0xFFFFFF) {
 				$cache_len = match List.set($cache_len, $cache_ptr, 3) {
 					Ok(next) => next
-					Err(_) => return Err(CompressBug)
+					Err(_) => crash "BtMatchfinder.get_matches: cache_len index out of bounds"
 				}
 				$cache_off = match List.set($cache_off, $cache_ptr, in_next.minus_wrap(at3).to_u32_wrap()) {
 					Ok(next) => next
-					Err(_) => return Err(CompressBug)
+					Err(_) => crash "BtMatchfinder.get_matches: cache_off index out of bounds"
 				}
 				$cache_ptr = $cache_ptr.plus_wrap(1)
 			} else if node3_2.to_u64() > cur_pos {
@@ -124,11 +129,11 @@ BtMatchfinder := [].{
 				if seq3 == (U32.from_le_bytes(input, at3b) ?? 0).bitwise_and(0xFFFFFF) {
 					$cache_len = match List.set($cache_len, $cache_ptr, 3) {
 						Ok(next) => next
-						Err(_) => return Err(CompressBug)
+						Err(_) => crash "BtMatchfinder.get_matches: cache_len index out of bounds"
 					}
 					$cache_off = match List.set($cache_off, $cache_ptr, in_next.minus_wrap(at3b).to_u32_wrap()) {
 						Ok(next) => next
-						Err(_) => return Err(CompressBug)
+						Err(_) => crash "BtMatchfinder.get_matches: cache_off index out of bounds"
 					}
 					$cache_ptr = $cache_ptr.plus_wrap(1)
 				} else {
@@ -141,7 +146,7 @@ BtMatchfinder := [].{
 		node4 = List.get($tab4, hash4) ?? 0
 		$tab4 = match List.set($tab4, hash4, pos) {
 			Ok(next) => next
-			Err(_) => return Err(CompressBug)
+			Err(_) => crash "BtMatchfinder.get_matches: tab4 index out of bounds"
 		}
 
 		# The two subtrees being rebuilt hang off this position's child slots.
@@ -151,11 +156,11 @@ BtMatchfinder := [].{
 		if node4.to_u64() <= cur_pos {
 			$child = match List.set($child, $pending_lt, 0) {
 				Ok(next) => next
-				Err(_) => return Err(CompressBug)
+				Err(_) => crash "BtMatchfinder.get_matches: child index out of bounds"
 			}
 			$child = match List.set($child, $pending_gt, 0) {
 				Ok(next) => next
-				Err(_) => return Err(CompressBug)
+				Err(_) => crash "BtMatchfinder.get_matches: child index out of bounds"
 			}
 			return Ok({
 				hash3: $tab3,
@@ -187,11 +192,11 @@ BtMatchfinder := [].{
 					$best_len = $len
 					$cache_len = match List.set($cache_len, $cache_ptr, $len.to_u32_wrap()) {
 						Ok(next) => next
-						Err(_) => return Err(CompressBug)
+						Err(_) => crash "BtMatchfinder.get_matches: cache_len index out of bounds"
 					}
 					$cache_off = match List.set($cache_off, $cache_ptr, in_next.minus_wrap(match_at).to_u32_wrap()) {
 						Ok(next) => next
-						Err(_) => return Err(CompressBug)
+						Err(_) => crash "BtMatchfinder.get_matches: cache_off index out of bounds"
 					}
 					$cache_ptr = $cache_ptr.plus_wrap(1)
 					if $len >= nice_len {
@@ -202,11 +207,11 @@ BtMatchfinder := [].{
 						node_gt = List.get($child, ns.plus_wrap(1)) ?? 0
 						$child = match List.set($child, $pending_lt, node_lt) {
 							Ok(next) => next
-							Err(_) => return Err(CompressBug)
+							Err(_) => crash "BtMatchfinder.get_matches: child index out of bounds"
 						}
 						$child = match List.set($child, $pending_gt, node_gt) {
 							Ok(next) => next
-							Err(_) => return Err(CompressBug)
+							Err(_) => crash "BtMatchfinder.get_matches: child index out of bounds"
 						}
 						$walking = 0
 					} else {
@@ -223,7 +228,7 @@ BtMatchfinder := [].{
 					# left subtree belong to the lesser side.
 					$child = match List.set($child, $pending_lt, $node) {
 						Ok(next) => next
-						Err(_) => return Err(CompressBug)
+						Err(_) => crash "BtMatchfinder.get_matches: child index out of bounds"
 					}
 					$pending_lt = ns.plus_wrap(1)
 					$node = List.get($child, $pending_lt) ?? 0
@@ -235,7 +240,7 @@ BtMatchfinder := [].{
 				} else {
 					$child = match List.set($child, $pending_gt, $node) {
 						Ok(next) => next
-						Err(_) => return Err(CompressBug)
+						Err(_) => crash "BtMatchfinder.get_matches: child index out of bounds"
 					}
 					$pending_gt = ns
 					$node = List.get($child, $pending_gt) ?? 0
@@ -250,11 +255,11 @@ BtMatchfinder := [].{
 				if $node.to_u64() <= cur_pos or $depth == 0 {
 					$child = match List.set($child, $pending_lt, 0) {
 						Ok(next) => next
-						Err(_) => return Err(CompressBug)
+						Err(_) => crash "BtMatchfinder.get_matches: child index out of bounds"
 					}
 					$child = match List.set($child, $pending_gt, 0) {
 						Ok(next) => next
-						Err(_) => return Err(CompressBug)
+						Err(_) => crash "BtMatchfinder.get_matches: child index out of bounds"
 					}
 					$walking = 0
 				} else {
@@ -281,7 +286,9 @@ BtMatchfinder := [].{
 	## The tree still has to be walked and rebuilt, so this is nearly the same
 	## work as a search; the walk simply stops at `nice_len` rather than at the
 	## caller's maximum length.
-	skip_byte : List(U16), List(U16), List(U16), U64, U64, List(U8), U64, U64, U64, U64 -> Try(State, [CompressBug])
+	##
+	## The `Try` cannot fail, for the reason [BtMatchfinder.get_matches] gives.
+	skip_byte : List(U16), List(U16), List(U16), U64, U64, List(U8), U64, U64, U64, U64 -> Try(State, [])
 	skip_byte = |tab3_0, tab4_0, child_0, nh3, nh4, input, in_base, cur_pos, nice_len, max_search_depth| {
 		var $tab3 = tab3_0
 		var $tab4 = tab4_0
@@ -299,17 +306,17 @@ BtMatchfinder := [].{
 		node3 = List.get($tab3, slot3) ?? 0
 		$tab3 = match List.set($tab3, slot3, pos) {
 			Ok(next) => next
-			Err(_) => return Err(CompressBug)
+			Err(_) => crash "BtMatchfinder.skip_byte: tab3 index out of bounds"
 		}
 		$tab3 = match List.set($tab3, slot3.plus_wrap(1), node3) {
 			Ok(next) => next
-			Err(_) => return Err(CompressBug)
+			Err(_) => crash "BtMatchfinder.skip_byte: tab3 index out of bounds"
 		}
 
 		node4 = List.get($tab4, hash4) ?? 0
 		$tab4 = match List.set($tab4, hash4, pos) {
 			Ok(next) => next
-			Err(_) => return Err(CompressBug)
+			Err(_) => crash "BtMatchfinder.skip_byte: tab4 index out of bounds"
 		}
 
 		var $pending_lt = cur_pos.bitwise_and(32767).times_wrap(2)
@@ -318,11 +325,11 @@ BtMatchfinder := [].{
 		if node4.to_u64() <= cur_pos {
 			$child = match List.set($child, $pending_lt, 0) {
 				Ok(next) => next
-				Err(_) => return Err(CompressBug)
+				Err(_) => crash "BtMatchfinder.skip_byte: child index out of bounds"
 			}
 			$child = match List.set($child, $pending_gt, 0) {
 				Ok(next) => next
-				Err(_) => return Err(CompressBug)
+				Err(_) => crash "BtMatchfinder.skip_byte: child index out of bounds"
 			}
 			return Ok({
 				hash3: $tab3,
@@ -352,11 +359,11 @@ BtMatchfinder := [].{
 					node_gt = List.get($child, ns.plus_wrap(1)) ?? 0
 					$child = match List.set($child, $pending_lt, node_lt) {
 						Ok(next) => next
-						Err(_) => return Err(CompressBug)
+						Err(_) => crash "BtMatchfinder.skip_byte: child index out of bounds"
 					}
 					$child = match List.set($child, $pending_gt, node_gt) {
 						Ok(next) => next
-						Err(_) => return Err(CompressBug)
+						Err(_) => crash "BtMatchfinder.skip_byte: child index out of bounds"
 					}
 					$walking = 0
 				} else {
@@ -369,7 +376,7 @@ BtMatchfinder := [].{
 				if (List.get(input, match_at.plus_wrap($len)) ?? 0) < (List.get(input, in_next.plus_wrap($len)) ?? 0) {
 					$child = match List.set($child, $pending_lt, $node) {
 						Ok(next) => next
-						Err(_) => return Err(CompressBug)
+						Err(_) => crash "BtMatchfinder.skip_byte: child index out of bounds"
 					}
 					$pending_lt = ns.plus_wrap(1)
 					$node = List.get($child, $pending_lt) ?? 0
@@ -381,7 +388,7 @@ BtMatchfinder := [].{
 				} else {
 					$child = match List.set($child, $pending_gt, $node) {
 						Ok(next) => next
-						Err(_) => return Err(CompressBug)
+						Err(_) => crash "BtMatchfinder.skip_byte: child index out of bounds"
 					}
 					$pending_gt = ns
 					$node = List.get($child, $pending_gt) ?? 0
@@ -396,11 +403,11 @@ BtMatchfinder := [].{
 				if $node.to_u64() <= cur_pos or $depth == 0 {
 					$child = match List.set($child, $pending_lt, 0) {
 						Ok(next) => next
-						Err(_) => return Err(CompressBug)
+						Err(_) => crash "BtMatchfinder.skip_byte: child index out of bounds"
 					}
 					$child = match List.set($child, $pending_gt, 0) {
 						Ok(next) => next
-						Err(_) => return Err(CompressBug)
+						Err(_) => crash "BtMatchfinder.skip_byte: child index out of bounds"
 					}
 					$walking = 0
 				} else {

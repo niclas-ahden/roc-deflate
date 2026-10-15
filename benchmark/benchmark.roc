@@ -82,7 +82,7 @@ run_one! = |dir, name| {
 report! : Str, Str, List(U8), U64 => Try({}, [Exit(I32), StdoutErr(IOErr)])
 report! = |name, setting, bytes, level| {
 	orig = bytes.len()
-	compressed = Deflate.compress(bytes, level) ? |_| Exit(1)
+	compressed = Deflate.compress(bytes, level)
 	comp = compressed.len()
 
 	# Verify before reporting: a fast wrong answer is not a result.
@@ -108,7 +108,7 @@ row! = |name, op, setting, orig, comp, t|
 ## measurement protocol is unaffected.
 time_compress! : List(U8), U64 => Timing
 time_compress! = |bytes, level| {
-	warm = compressed_len(Deflate.compress(bytes, level))
+	warm = Deflate.compress(bytes, level).len()
 	compress_loop!(bytes, level, warm, 0, 0, 0)
 }
 
@@ -122,22 +122,12 @@ compress_loop! = |bytes, level, sink, best, elapsed, iters|
 		{ best_ns: best, iters: iters }
 	} else {
 		start = Monotonic.now!()
-		out = Deflate.compress(bytes, level)
 		# Read the length before stopping the clock so the work is forced.
-		produced = compressed_len(out)
+		produced = Deflate.compress(bytes, level).len()
 		finish = Monotonic.now!()
 		took = finish.since(start).to_nanos().to_u128()
 		next_best = if iters == 0 or took < best { took } else { best }
 		compress_loop!(bytes, level, sink + produced, next_best, elapsed + took, iters + 1)
-	}
-
-## Length of a compressed result, or 0 if it failed; report! has already
-## verified the round trip, so a failure here cannot pass as a result.
-compressed_len : Try(List(U8), _) -> U64
-compressed_len = |result|
-	match result {
-		Ok(bytes) => bytes.len()
-		Err(_) => 0
 	}
 
 ## Length of a decompressed result, or 0 if it failed.

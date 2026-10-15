@@ -45,7 +45,7 @@ main! = |_| {
 # Compress at one level and fail if the output is larger than the ceiling.
 check! : Str, List(U8), U64, U64 => Try({}, [Exit(I32), StdoutErr(IOErr)])
 check! = |name, corpus, level, ceiling| {
-	size = (Deflate.compress(corpus, level) ? |_| Exit(1)).len()
+	size = Deflate.compress(corpus, level).len()
 	if size <= ceiling {
 		Stdout.line!("  ${name}: ${size.to_str()} bytes (ceiling ${ceiling.to_str()})")
 	} else {

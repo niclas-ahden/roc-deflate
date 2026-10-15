@@ -15,7 +15,7 @@ main! = |args| {
 		Err(_) => "Bootcut Jeans, salmon shirt, I have a skin routine and my elbows hurt.".to_utf8()
 	}
 
-	compressed = Deflate.compress(original, 6) ? |_| Exit(1)
+	compressed = Deflate.compress(original, 6)
 	Stdout.line!("Compressed ${original.len().to_str()} bytes to ${compressed.len().to_str()}")?
 
 	match Deflate.decompress(compressed) {

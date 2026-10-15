@@ -23,13 +23,7 @@ main! = |args| {
 	reps = U64.from_str(OsStr.to_str_try(reps_os) ? |_| Exit(3)) ? |_| Exit(3)
 	data = Path.read_bytes!(Path.from_os_str(path_os)) ? |_| Exit(5)
 
-	first = match Deflate.compress(data, level) {
-		Ok(c) => c
-		Err(_) => {
-			Stdout.line!("COMPRESS BUG") ? |_| Exit(6)
-			return Err(Exit(6))
-		}
-	}
+	first = Deflate.compress(data, level)
 	back = Deflate.decompress(first) ? |_| Exit(7)
 	if back != data {
 		Stdout.line!("VERIFY FAIL") ? |_| Exit(8)
@@ -45,10 +39,7 @@ main! = |args| {
 	var $r = 0.U64
 	while $r < reps {
 		t0 = Monotonic.now!()
-		sz = match Deflate.compress(data, level) {
-			Ok(c) => List.len(c)
-			Err(_) => 0
-		}
+		sz = List.len(Deflate.compress(data, level))
 		dt = Monotonic.now!().since(t0).to_nanos().to_u128()
 		$total = $total + sz
 		if $r == 0 or dt < $best {

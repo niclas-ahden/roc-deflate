@@ -68,7 +68,7 @@ BlockOut := [].{
 	##
 	## Each item carries its precode symbol in the low five bits and any extra
 	## bits above them.
-	compute_precode_items : List(U8), U64, List(U32), List(U32) -> Try({ freqs : List(U32), items : List(U32), num_items : U64 }, [CompressBug])
+	compute_precode_items : List(U8), U64, List(U32), List(U32) -> { freqs : List(U32), items : List(U32), num_items : U64 }
 	compute_precode_items = |lens, num_lens, freqs0, items0| {
 		var $freqs = freqs0
 		var $items = items0
@@ -90,11 +90,11 @@ BlockOut := [].{
 					freqs_count = (List.get($freqs, 18) ?? 0) + 1
 					$freqs = match List.set($freqs, 18, freqs_count) {
 						Ok(next) => next
-						Err(_) => return Err(CompressBug)
+						Err(_) => crash "BlockOut.compute_precode_items: freqs index out of bounds"
 					}
 					$items = match List.set($items, $num_items, 18.U32.bitwise_or(extra.to_u32_wrap().shl_wrap(5))) {
 						Ok(next) => next
-						Err(_) => return Err(CompressBug)
+						Err(_) => crash "BlockOut.compute_precode_items: items index out of bounds"
 					}
 					$num_items = $num_items + 1
 					$run_start = $run_start + 11 + extra
@@ -104,11 +104,11 @@ BlockOut := [].{
 					freqs_count = (List.get($freqs, 17) ?? 0) + 1
 					$freqs = match List.set($freqs, 17, freqs_count) {
 						Ok(next) => next
-						Err(_) => return Err(CompressBug)
+						Err(_) => crash "BlockOut.compute_precode_items: freqs index out of bounds"
 					}
 					$items = match List.set($items, $num_items, 17.U32.bitwise_or(extra.to_u32_wrap().shl_wrap(5))) {
 						Ok(next) => next
-						Err(_) => return Err(CompressBug)
+						Err(_) => crash "BlockOut.compute_precode_items: items index out of bounds"
 					}
 					$num_items = $num_items + 1
 					$run_start = $run_start + 3 + extra
@@ -120,11 +120,11 @@ BlockOut := [].{
 				if ($run_end - $run_start) >= 4 {
 					$freqs = match List.set($freqs, len.to_u64(), (List.get($freqs, len.to_u64()) ?? 0) + 1) {
 						Ok(next) => next
-						Err(_) => return Err(CompressBug)
+						Err(_) => crash "BlockOut.compute_precode_items: freqs index out of bounds"
 					}
 					$items = match List.set($items, $num_items, len.to_u32()) {
 						Ok(next) => next
-						Err(_) => return Err(CompressBug)
+						Err(_) => crash "BlockOut.compute_precode_items: items index out of bounds"
 					}
 					$num_items = $num_items + 1
 					$run_start = $run_start + 1
@@ -134,11 +134,11 @@ BlockOut := [].{
 						freqs_count = (List.get($freqs, 16) ?? 0) + 1
 						$freqs = match List.set($freqs, 16, freqs_count) {
 							Ok(next) => next
-							Err(_) => return Err(CompressBug)
+							Err(_) => crash "BlockOut.compute_precode_items: freqs index out of bounds"
 						}
 						$items = match List.set($items, $num_items, 16.U32.bitwise_or(extra.to_u32_wrap().shl_wrap(5))) {
 							Ok(next) => next
-							Err(_) => return Err(CompressBug)
+							Err(_) => crash "BlockOut.compute_precode_items: items index out of bounds"
 						}
 						$num_items = $num_items + 1
 						$run_start = $run_start + 3 + extra
@@ -155,23 +155,23 @@ BlockOut := [].{
 			while $run_start != $run_end {
 				$freqs = match List.set($freqs, len.to_u64(), (List.get($freqs, len.to_u64()) ?? 0) + 1) {
 					Ok(next) => next
-					Err(_) => return Err(CompressBug)
+					Err(_) => crash "BlockOut.compute_precode_items: freqs index out of bounds"
 				}
 				$items = match List.set($items, $num_items, len.to_u32()) {
 					Ok(next) => next
-					Err(_) => return Err(CompressBug)
+					Err(_) => crash "BlockOut.compute_precode_items: items index out of bounds"
 				}
 				$num_items = $num_items + 1
 				$run_start = $run_start + 1
 			}
 		}
-		Ok({ freqs: $freqs, items: $items, num_items: $num_items })
+		{ freqs: $freqs, items: $items, num_items: $num_items }
 	}
 
 	## Work out everything the dynamic Huffman header needs: how many litlen
 	## and offset lengths must be sent, the precode items that encode them, and
 	## the precode itself.
-	precompute_huffman_header : List(U8), List(U8) -> Try(PrecodeInfo, [CompressBug])
+	precompute_huffman_header : List(U8), List(U8) -> PrecodeInfo
 	precompute_huffman_header = |litlen_lens, offset_lens| {
 		# Trailing unused symbols need not be sent.
 		var $num_litlen_syms = DeflateTables.num_litlen_syms
@@ -212,7 +212,7 @@ BlockOut := [].{
 			num_lens,
 			List.repeat(0.U32, DeflateTables.num_precode_syms),
 			List.repeat(0.U32, DeflateTables.num_litlen_syms + DeflateTables.num_offset_syms),
-		)?
+		)
 
 		precode = HuffmanEncode.make_code(
 			DeflateTables.num_precode_syms,
@@ -220,7 +220,7 @@ BlockOut := [].{
 			computed.freqs,
 			List.repeat(0.U8, DeflateTables.num_precode_syms),
 			List.repeat(0.U32, DeflateTables.num_precode_syms),
-		)?
+		)
 
 		# Trailing zero precode lengths need not be sent either.
 		var $num_explicit_lens = DeflateTables.num_precode_syms
@@ -234,7 +234,7 @@ BlockOut := [].{
 			}
 		}
 
-		Ok({
+		{
 			freqs: computed.freqs,
 			lens: precode.lens,
 			codewords: precode.codewords,
@@ -243,7 +243,7 @@ BlockOut := [].{
 			num_litlen_syms: $num_litlen_syms,
 			num_offset_syms: $num_offset_syms,
 			num_explicit_lens: $num_explicit_lens,
-		})
+		}
 	}
 
 	FullLens : { codewords : List(U32), lens : List(U8) }
@@ -251,7 +251,7 @@ BlockOut := [].{
 	## Concatenate each match length's litlen codeword with its extra bits, so
 	## writing a match is one table lookup rather than a slot lookup plus two
 	## assembles.
-	compute_full_len_codewords : List(U8), List(U32) -> Try(FullLens, [CompressBug])
+	compute_full_len_codewords : List(U8), List(U32) -> FullLens
 	compute_full_len_codewords = |litlen_lens, litlen_codewords| {
 		var $codewords = List.repeat(0.U32, DeflateTables.max_match_len + 1)
 		var $lens = List.repeat(0.U8, DeflateTables.max_match_len + 1)
@@ -265,16 +265,16 @@ BlockOut := [].{
 				(List.get(litlen_codewords, litlen_sym) ?? 0)
 					.bitwise_or(extra_bits.shl_wrap(sym_len))) {
 				Ok(next) => next
-				Err(_) => return Err(CompressBug)
+				Err(_) => crash "BlockOut.compute_full_len_codewords: codewords index out of bounds"
 			}
 			$lens = match List.set($lens, $len,
 				sym_len + (List.get(DeflateTables.extra_length_bits, slot) ?? 0)) {
 				Ok(next) => next
-				Err(_) => return Err(CompressBug)
+				Err(_) => crash "BlockOut.compute_full_len_codewords: lens index out of bounds"
 			}
 			$len = $len + 1
 		}
-		Ok({ codewords: $codewords, lens: $lens })
+		{ codewords: $codewords, lens: $lens }
 	}
 	OutState : { out : List(U8), bitbuf : U64, bitcount : U64 }
 
@@ -347,7 +347,7 @@ BlockOut := [].{
 	## Write a block's sequences: each literal run, then its match. This is its
 	## own function so the per-symbol loop keeps the bit buffer, the cursor, and
 	## the tables in registers.
-	write_sequences : List(U8), U64, U64, List(U8), U64, List(BlockOut.Sequence), List(U64), List(U64), List(U64) -> Try({ out : List(U8), bitbuf : U64, bitcount : U64 }, [CompressBug])
+	write_sequences : List(U8), U64, U64, List(U8), U64, List(BlockOut.Sequence), List(U64), List(U64), List(U64) -> { out : List(U8), bitbuf : U64, bitcount : U64 }
 	write_sequences = |out_0, bitbuf_0, bitcount_0, input, in_next_0, seqs, packed_litlen, packed_full, packed_offset| {
 		var $out = out_0
 		var $bitbuf = bitbuf_0
@@ -357,7 +357,7 @@ BlockOut := [].{
 		# the table's length once here lets the bounds test on every
 		# literal's lookup fold away instead of running per symbol.
 		if List.len(packed_litlen) < DeflateTables.num_literals {
-			return Err(CompressBug)
+			crash "BlockOut.write_sequences: packed literal table too short"
 		} else {
 		}
 
@@ -400,7 +400,7 @@ BlockOut := [].{
 				n = $bitcount.shr_zf_wrap(3)
 				$out = match $bitbuf.append_le_bytes_to($out, n.to_u8_wrap()) {
 					Ok(next) => next
-					Err(_) => return Err(CompressBug)
+					Err(_) => crash "BlockOut.write_sequences: appended more than 8 bytes"
 				}
 				$bitbuf = $bitbuf.shr_zf_wrap(n.shl_wrap(3).to_u8_wrap())
 				$bitcount = $bitcount.bitwise_and(7)
@@ -431,7 +431,7 @@ BlockOut := [].{
 				n = $bitcount.shr_zf_wrap(3)
 				$out = match $bitbuf.append_le_bytes_to($out, n.to_u8_wrap()) {
 					Ok(next) => next
-					Err(_) => return Err(CompressBug)
+					Err(_) => crash "BlockOut.write_sequences: appended more than 8 bytes"
 				}
 				$bitbuf = $bitbuf.shr_zf_wrap(n.shl_wrap(3).to_u8_wrap())
 				$bitcount = $bitcount.bitwise_and(7)
@@ -457,7 +457,7 @@ BlockOut := [].{
 				n = $bitcount.shr_zf_wrap(3)
 				$out = match $bitbuf.append_le_bytes_to($out, n.to_u8_wrap()) {
 					Ok(next) => next
-					Err(_) => return Err(CompressBug)
+					Err(_) => crash "BlockOut.write_sequences: appended more than 8 bytes"
 				}
 				$bitbuf = $bitbuf.shr_zf_wrap(n.shl_wrap(3).to_u8_wrap())
 				$bitcount = $bitcount.bitwise_and(7)
@@ -466,12 +466,12 @@ BlockOut := [].{
 			}
 		}
 
-		Ok({ out: $out, bitbuf: $bitbuf, bitcount: $bitcount })
+		{ out: $out, bitbuf: $bitbuf, bitcount: $bitcount }
 	}
 
-	flush_block : List(U8), U64, U64, List(U8), U64, U64, List(BlockOut.Sequence), List(U32), List(U32), List(U8), List(U32), List(U8), List(U32), List(U8), List(U32), List(U8), List(U32), List(U32), U64, U64 -> Try(FlushResult, [CompressBug])
+	flush_block : List(U8), U64, U64, List(U8), U64, U64, List(BlockOut.Sequence), List(U32), List(U32), List(U8), List(U32), List(U8), List(U32), List(U8), List(U32), List(U8), List(U32), List(U32), U64, U64 -> FlushResult
 	flush_block = |out_0, bitbuf_0, bitcount_0, input, block_begin, block_length_0, seqs, freqs_litlen, freqs_offset, litlen_lens, litlen_codewords, offset_lens, offset_codewords, s_litlen_lens, s_litlen_codewords, s_offset_lens, s_offset_codewords, items, use_items, is_final| {
-		precode = BlockOut.precompute_huffman_header(litlen_lens, offset_lens)?
+		precode = BlockOut.precompute_huffman_header(litlen_lens, offset_lens)
 
 		# Cost of the dynamic Huffman header: the three length counts, the
 		# explicit precode lengths, then the precode-encoded lengths.
@@ -564,11 +564,11 @@ BlockOut := [].{
 
 				$out = match len.append_le_bytes_to($out, 2) {
 					Ok(next) => next
-					Err(_) => return Err(CompressBug)
+					Err(_) => crash "BlockOut.flush_block: appended more than 8 bytes"
 				}
 				$out = match len.bitwise_not().append_le_bytes_to($out, 2) {
 					Ok(next) => next
-					Err(_) => return Err(CompressBug)
+					Err(_) => crash "BlockOut.flush_block: appended more than 8 bytes"
 				}
 				$out = List.append_sublist($out, input, { start: $in_next, len })
 				$in_next = $in_next + len
@@ -577,7 +577,7 @@ BlockOut := [].{
 				} else {
 				}
 			}
-			Ok({
+			{
 				out: $out,
 				bitbuf: $bitbuf,
 				bitcount: $bitcount,
@@ -591,7 +591,7 @@ BlockOut := [].{
 				static_litlen_codewords: s_litlen_codewords,
 				static_offset_lens: s_offset_lens,
 				static_offset_codewords: s_offset_codewords,
-			})
+			}
 		} else {
 			use_static = best_cost == $static_cost
 
@@ -603,7 +603,7 @@ BlockOut := [].{
 				n = $bitcount.shr_zf_wrap(3)
 				$out = match $bitbuf.append_le_bytes_to($out, n.to_u8_wrap()) {
 					Ok(next) => next
-					Err(_) => return Err(CompressBug)
+					Err(_) => crash "BlockOut.flush_block: appended more than 8 bytes"
 				}
 				$bitbuf = $bitbuf.shr_zf_wrap(n.shl_wrap(3).to_u8_wrap())
 				$bitcount = $bitcount.bitwise_and(7)
@@ -628,7 +628,7 @@ BlockOut := [].{
 				n0 = $bitcount.shr_zf_wrap(3)
 				$out = match $bitbuf.append_le_bytes_to($out, n0.to_u8_wrap()) {
 					Ok(next) => next
-					Err(_) => return Err(CompressBug)
+					Err(_) => crash "BlockOut.flush_block: appended more than 8 bytes"
 				}
 				$bitbuf = $bitbuf.shr_zf_wrap(n0.shl_wrap(3).to_u8_wrap())
 				$bitcount = $bitcount.bitwise_and(7)
@@ -643,7 +643,7 @@ BlockOut := [].{
 				n1 = $bitcount.shr_zf_wrap(3)
 				$out = match $bitbuf.append_le_bytes_to($out, n1.to_u8_wrap()) {
 					Ok(next) => next
-					Err(_) => return Err(CompressBug)
+					Err(_) => crash "BlockOut.flush_block: appended more than 8 bytes"
 				}
 				$bitbuf = $bitbuf.shr_zf_wrap(n1.shl_wrap(3).to_u8_wrap())
 				$bitcount = $bitcount.bitwise_and(7)
@@ -660,7 +660,7 @@ BlockOut := [].{
 					n = $bitcount.shr_zf_wrap(3)
 					$out = match $bitbuf.append_le_bytes_to($out, n.to_u8_wrap()) {
 						Ok(next) => next
-						Err(_) => return Err(CompressBug)
+						Err(_) => crash "BlockOut.flush_block: appended more than 8 bytes"
 					}
 					$bitbuf = $bitbuf.shr_zf_wrap(n.shl_wrap(3).to_u8_wrap())
 					$bitcount = $bitcount.bitwise_and(7)
@@ -672,7 +672,7 @@ BlockOut := [].{
 			w_litlen_codewords = if use_static { s_litlen_codewords } else { litlen_codewords }
 			w_offset_lens = if use_static { s_offset_lens } else { offset_lens }
 			w_offset_codewords = if use_static { s_offset_codewords } else { offset_codewords }
-			full = BlockOut.compute_full_len_codewords(w_litlen_lens, w_litlen_codewords)?
+			full = BlockOut.compute_full_len_codewords(w_litlen_lens, w_litlen_codewords)
 			full_codewords = full.codewords
 			full_lens = full.lens
 
@@ -692,7 +692,7 @@ BlockOut := [].{
 					n = $bitcount.shr_zf_wrap(3)
 					$out = match $bitbuf.append_le_bytes_to($out, n.to_u8_wrap()) {
 						Ok(next) => next
-						Err(_) => return Err(CompressBug)
+						Err(_) => crash "BlockOut.flush_block: appended more than 8 bytes"
 					}
 					$bitbuf = $bitbuf.shr_zf_wrap(n.shl_wrap(3).to_u8_wrap())
 					$bitcount = $bitcount.bitwise_and(7)
@@ -707,7 +707,7 @@ BlockOut := [].{
 					n = $bitcount.shr_zf_wrap(3)
 					$out = match $bitbuf.append_le_bytes_to($out, n.to_u8_wrap()) {
 						Ok(next) => next
-						Err(_) => return Err(CompressBug)
+						Err(_) => crash "BlockOut.flush_block: appended more than 8 bytes"
 					}
 					$bitbuf = $bitbuf.shr_zf_wrap(n.shl_wrap(3).to_u8_wrap())
 					$bitcount = $bitcount.bitwise_and(7)
@@ -719,7 +719,7 @@ BlockOut := [].{
 			packed_full = BlockOut.pack_codes(full_codewords, full_lens)
 			packed_offset = BlockOut.pack_offsets(w_offset_codewords, w_offset_lens)
 			if use_items == 0 {
-				written = BlockOut.write_sequences($out, $bitbuf, $bitcount, input, $in_next, seqs, packed_litlen, packed_full, packed_offset)?
+				written = BlockOut.write_sequences($out, $bitbuf, $bitcount, input, $in_next, seqs, packed_litlen, packed_full, packed_offset)
 				$out = written.out
 				$bitbuf = written.bitbuf
 				$bitcount = written.bitcount
@@ -732,12 +732,12 @@ BlockOut := [].{
 			n = $bitcount.shr_zf_wrap(3)
 			$out = match $bitbuf.append_le_bytes_to($out, n.to_u8_wrap()) {
 				Ok(next) => next
-				Err(_) => return Err(CompressBug)
+				Err(_) => crash "BlockOut.flush_block: appended more than 8 bytes"
 			}
 			$bitbuf = $bitbuf.shr_zf_wrap(n.shl_wrap(3).to_u8_wrap())
 			$bitcount = $bitcount.bitwise_and(7)
 
-			Ok({
+			{
 				out: $out,
 				bitbuf: $bitbuf,
 				bitcount: $bitcount,
@@ -751,7 +751,7 @@ BlockOut := [].{
 				static_litlen_codewords: s_litlen_codewords,
 				static_offset_lens: s_offset_lens,
 				static_offset_codewords: s_offset_codewords,
-			})
+			}
 		}
 	}
 }

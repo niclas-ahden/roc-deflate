@@ -22,10 +22,10 @@ CompressFast := [].{
 	fast_seq_store_length : U64
 	fast_seq_store_length = 8192
 
-	compress : List(U8), U64 -> Try(List(U8), [CompressBug])
+	compress : List(U8), U64 -> List(U8)
 	compress = |input, nice_match_length| {
 		in_end = List.len(input)
-		static = CompressLazy.build_static_codes(0)?
+		static = CompressLazy.build_static_codes(0)
 		var $s_litlen_lens = static.litlen_lens
 		var $s_litlen_codewords = static.litlen_codewords
 		var $s_offset_lens = static.offset_lens
@@ -76,7 +76,7 @@ CompressFast := [].{
 							lit_count = (List.get($freqs_litlen, lit) ?? 0).plus_wrap(1)
 							$freqs_litlen = match List.set($freqs_litlen, lit, lit_count) {
 								Ok(next) => next
-								Err(_) => return Err(CompressBug)
+								Err(_) => crash "CompressFast.compress: freqs_litlen index out of bounds"
 							}
 							$litrunlen = $litrunlen.plus_wrap(1)
 							$in_next = $in_next.plus_wrap(1)
@@ -91,7 +91,7 @@ CompressFast := [].{
 				}
 
 				if $searched == 1 {
-					found = HtMatchfinder.longest_match($tab, $base, $nh, input, $in_next, $max_len, $nice_len)?
+					found = HtMatchfinder.longest_match($tab, $base, $nh, input, $in_next, $max_len, $nice_len)
 					$tab = found.hash_tab
 					$base = found.in_cur_base
 					$nh = found.next_hash
@@ -103,12 +103,12 @@ CompressFast := [].{
 						litlen_sym_count = (List.get($freqs_litlen, litlen_sym) ?? 0).plus_wrap(1)
 						$freqs_litlen = match List.set($freqs_litlen, litlen_sym, litlen_sym_count) {
 							Ok(next) => next
-							Err(_) => return Err(CompressBug)
+							Err(_) => crash "CompressFast.compress: freqs_litlen index out of bounds"
 						}
 						offset_slot_count = (List.get($freqs_offset, offset_slot) ?? 0).plus_wrap(1)
 						$freqs_offset = match List.set($freqs_offset, offset_slot, offset_slot_count) {
 							Ok(next) => next
-							Err(_) => return Err(CompressBug)
+							Err(_) => crash "CompressFast.compress: freqs_offset index out of bounds"
 						}
 						$seqs = List.append($seqs, {
 							litrunlen_and_length: $litrunlen.bitwise_or(found.length.to_u32_wrap().shl_wrap(BlockOut.seq_length_shift)),
@@ -117,7 +117,7 @@ CompressFast := [].{
 						})
 						$litrunlen = 0
 
-						skipped = HtMatchfinder.skip_bytes($tab, $base, $nh, input, $in_next.plus_wrap(1), in_end, found.length.minus_wrap(1))?
+						skipped = HtMatchfinder.skip_bytes($tab, $base, $nh, input, $in_next.plus_wrap(1), in_end, found.length.minus_wrap(1))
 						$tab = skipped.hash_tab
 						$base = skipped.in_cur_base
 						$nh = skipped.next_hash
@@ -127,7 +127,7 @@ CompressFast := [].{
 						lit_count = (List.get($freqs_litlen, lit) ?? 0).plus_wrap(1)
 						$freqs_litlen = match List.set($freqs_litlen, lit, lit_count) {
 							Ok(next) => next
-							Err(_) => return Err(CompressBug)
+							Err(_) => crash "CompressFast.compress: freqs_litlen index out of bounds"
 						}
 						$litrunlen = $litrunlen.plus_wrap(1)
 						$in_next = $in_next.plus_wrap(1)
@@ -149,7 +149,7 @@ CompressFast := [].{
 			$freqs_litlen = match List.set($freqs_litlen, DeflateTables.end_of_block,
 				(List.get($freqs_litlen, DeflateTables.end_of_block) ?? 0) + 1) {
 				Ok(next) => next
-				Err(_) => return Err(CompressBug)
+				Err(_) => crash "CompressFast.compress: freqs_litlen index out of bounds"
 			}
 			litlen_code = HuffmanEncode.make_code(
 				DeflateTables.num_litlen_syms,
@@ -157,14 +157,14 @@ CompressFast := [].{
 				$freqs_litlen,
 				List.repeat(0.U8, DeflateTables.num_litlen_syms),
 				List.repeat(0.U32, DeflateTables.num_litlen_syms),
-			)?
+			)
 			offset_code = HuffmanEncode.make_code(
 				DeflateTables.num_offset_syms,
 				BlockOut.max_offset_codeword_len,
 				$freqs_offset,
 				List.repeat(0.U8, DeflateTables.num_offset_syms),
 				List.repeat(0.U32, DeflateTables.num_offset_syms),
-			)?
+			)
 
 			is_final = if $in_next == in_end { 1 } else { 0 }
 			flushed = BlockOut.flush_block(
@@ -188,7 +188,7 @@ CompressFast := [].{
 				[],
 				0,
 				is_final,
-			)?
+			)
 			$out = flushed.out
 			$bitbuf = flushed.bitbuf
 			$bitcount = flushed.bitcount
@@ -208,6 +208,6 @@ CompressFast := [].{
 			$out = List.append($out, $bitbuf.to_u8_wrap())
 		} else {
 		}
-		Ok($out)
+		$out
 	}
 }

@@ -71,7 +71,7 @@ main! = |args| {
 # back unchanged.
 check_roundtrip! : List(U8), U64 => Try({}, [Exit(I32), StdoutErr(IOErr)])
 check_roundtrip! = |corpus, level| {
-	deflated = Deflate.compress(corpus, level) ? |_| Exit(1)
+	deflated = Deflate.compress(corpus, level)
 	back = Deflate.decompress(deflated) ? |_| Exit(1)
 	if back == corpus {
 		Stdout.line!("  level ${level.to_str()}: round-tripped ${deflated.len().to_str()} bytes")
@@ -85,7 +85,7 @@ check_roundtrip! = |corpus, level| {
 # decodes it back to the exact corpus.
 check_forward! : List(U8), Path.Path, Str, U64 => Try({}, [Exit(I32), StdoutErr(IOErr)])
 check_forward! = |corpus, tmp, name, level| {
-	deflated = Deflate.compress(corpus, level) ? |_| Exit(1)
+	deflated = Deflate.compress(corpus, level)
 	container = gzip_wrap(deflated, Crc32.checksum(corpus), corpus.len())
 	gz_path = tmp.join("roc_deflate_harness_ours.gz")
 	Path.write_bytes!(gz_path, container) ? |_| Exit(1)

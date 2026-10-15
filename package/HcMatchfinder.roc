@@ -213,7 +213,11 @@ HcMatchfinder := [].{
 	}
 
 	## Insert `count` positions into the tables without searching them.
-	skip_bytes : List(U16), U64, U64, U64, List(U8), U64, U64, U64 -> Try(State, [CompressBug])
+	##
+	## The result comes back in a `Try` that cannot fail. The compiler at
+	## roc-lang/roc 66c32df makes the lazy levels a few percent slower when
+	## this returns the bare record instead, though the work is the same.
+	skip_bytes : List(U16), U64, U64, U64, List(U8), U64, U64, U64 -> Try(State, [])
 	skip_bytes = |tab_0, base_0, nh3_0, nh4_0, input, in_next0, in_end, count| {
 		# The run and the four bytes hashed past it stay inside the input;
 		# stated against the input's own length, that lets the hash read on
@@ -246,7 +250,7 @@ HcMatchfinder := [].{
 			if List.len($tab) < HcMatchfinder.table_size
 				or nh3_0 >= HcMatchfinder.hash3_size
 				or nh4_0 >= HcMatchfinder.hash4_size {
-				return Err(CompressBug)
+				crash "HcMatchfinder.skip_bytes: hash-chain tables too short or hash out of range"
 			} else {
 			}
 			# Wrapping arithmetic: the run was bounded against the input above and
@@ -261,15 +265,15 @@ HcMatchfinder := [].{
 				prev_head = List.get($tab, HcMatchfinder.hash4_base.plus_wrap($hash4)) ?? 0
 				tab1 = match List.set($tab, HcMatchfinder.hash3_base.plus_wrap($hash3), pos) {
 					Ok(next) => next
-					Err(_) => return Err(CompressBug)
+					Err(_) => crash "HcMatchfinder.skip_bytes: tab index out of bounds"
 				}
 				tab2 = match List.set(tab1, slot, prev_head) {
 					Ok(next) => next
-					Err(_) => return Err(CompressBug)
+					Err(_) => crash "HcMatchfinder.skip_bytes: tab1 index out of bounds"
 				}
 				$tab = match List.set(tab2, HcMatchfinder.hash4_base.plus_wrap($hash4), pos) {
 					Ok(next) => next
-					Err(_) => return Err(CompressBug)
+					Err(_) => crash "HcMatchfinder.skip_bytes: tab2 index out of bounds"
 				}
 				$in_next = $in_next.plus_wrap(1)
 				next_hashseq = U32.from_le_bytes(input, $in_next) ?? 0

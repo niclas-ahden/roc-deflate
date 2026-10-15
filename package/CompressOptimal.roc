@@ -160,7 +160,7 @@ CompressOptimal := [].{
 	Costs : { literal : List(U32), length : List(U32), offset_slot : List(U32) }
 
 	## Take the cost model straight from a set of codeword lengths.
-	set_costs_from_codes : List(U8), List(U8), List(U32), List(U32), List(U32) -> Try(Costs, [CompressBug])
+	set_costs_from_codes : List(U8), List(U8), List(U32), List(U32), List(U32) -> Costs
 	set_costs_from_codes = |litlen_lens, offset_lens, literal_0, length_0, offset_slot_0| {
 		var $literal = literal_0
 		var $length = length_0
@@ -172,7 +172,7 @@ CompressOptimal := [].{
 			bits = if l != 0 { l } else { CompressOptimal.literal_nostat_bits }
 			$literal = match List.set($literal, $i, (bits * CompressOptimal.bit_cost).to_u32_wrap()) {
 				Ok(next) => next
-				Err(_) => return Err(CompressBug)
+				Err(_) => crash "CompressOptimal.set_costs_from_codes: literal index out of bounds"
 			}
 			$i = $i + 1
 		}
@@ -186,7 +186,7 @@ CompressOptimal := [].{
 			total = bits + (List.get(DeflateTables.extra_length_bits, slot) ?? 0).to_u64()
 			$length = match List.set($length, $i, (total * CompressOptimal.bit_cost).to_u32_wrap()) {
 				Ok(next) => next
-				Err(_) => return Err(CompressBug)
+				Err(_) => crash "CompressOptimal.set_costs_from_codes: length index out of bounds"
 			}
 			$i = $i + 1
 		}
@@ -198,12 +198,12 @@ CompressOptimal := [].{
 			total = bits + (List.get(DeflateTables.extra_offset_bits, $i) ?? 0).to_u64()
 			$offset_slot = match List.set($offset_slot, $i, (total * CompressOptimal.bit_cost).to_u32_wrap()) {
 				Ok(next) => next
-				Err(_) => return Err(CompressBug)
+				Err(_) => crash "CompressOptimal.set_costs_from_codes: offset_slot index out of bounds"
 			}
 			$i = $i + 1
 		}
 
-		Ok({ literal: $literal, length: $length, offset_slot: $offset_slot })
+		{ literal: $literal, length: $length, offset_slot: $offset_slot }
 	}
 
 	## Cost of a match length under the default model, where every length
@@ -222,7 +222,7 @@ CompressOptimal := [].{
 
 	## Set the model from the defaults alone, which is what the first block
 	## does since there is no previous block to learn from.
-	set_default_costs : U64, U64, List(U32), List(U32), List(U32) -> Try(Costs, [CompressBug])
+	set_default_costs : U64, U64, List(U32), List(U32), List(U32) -> Costs
 	set_default_costs = |lit_cost, len_sym_cost, literal_0, length_0, offset_slot_0| {
 		var $literal = literal_0
 		var $length = length_0
@@ -232,7 +232,7 @@ CompressOptimal := [].{
 		while $i < DeflateTables.num_literals {
 			$literal = match List.set($literal, $i, lit_cost.to_u32_wrap()) {
 				Ok(next) => next
-				Err(_) => return Err(CompressBug)
+				Err(_) => crash "CompressOptimal.set_default_costs: literal index out of bounds"
 			}
 			$i = $i + 1
 		}
@@ -240,7 +240,7 @@ CompressOptimal := [].{
 		while $i <= DeflateTables.max_match_len {
 			$length = match List.set($length, $i, CompressOptimal.default_length_cost($i, len_sym_cost).to_u32_wrap()) {
 				Ok(next) => next
-				Err(_) => return Err(CompressBug)
+				Err(_) => crash "CompressOptimal.set_default_costs: length index out of bounds"
 			}
 			$i = $i + 1
 		}
@@ -248,11 +248,11 @@ CompressOptimal := [].{
 		while $i < DeflateTables.num_offset_syms {
 			$offset_slot = match List.set($offset_slot, $i, CompressOptimal.default_offset_slot_cost($i).to_u32_wrap()) {
 				Ok(next) => next
-				Err(_) => return Err(CompressBug)
+				Err(_) => crash "CompressOptimal.set_default_costs: offset_slot index out of bounds"
 			}
 			$i = $i + 1
 		}
-		Ok({ literal: $literal, length: $length, offset_slot: $offset_slot })
+		{ literal: $literal, length: $length, offset_slot: $offset_slot }
 	}
 
 	## Blend one cost towards its default. The more the block differs from the
@@ -271,7 +271,7 @@ CompressOptimal := [].{
 		}
 	}
 
-	adjust_costs_impl : U64, U64, U64, List(U32), List(U32), List(U32) -> Try(Costs, [CompressBug])
+	adjust_costs_impl : U64, U64, U64, List(U32), List(U32), List(U32) -> Costs
 	adjust_costs_impl = |lit_cost, len_sym_cost, change_amount, literal_0, length_0, offset_slot_0| {
 		var $literal = literal_0
 		var $length = length_0
@@ -282,7 +282,7 @@ CompressOptimal := [].{
 			cur = List.get($literal, $i) ?? 0
 			$literal = match List.set($literal, $i, CompressOptimal.adjust_cost(cur, lit_cost, change_amount)) {
 				Ok(next) => next
-				Err(_) => return Err(CompressBug)
+				Err(_) => crash "CompressOptimal.adjust_costs_impl: literal index out of bounds"
 			}
 			$i = $i + 1
 		}
@@ -292,7 +292,7 @@ CompressOptimal := [].{
 			d = CompressOptimal.default_length_cost($i, len_sym_cost)
 			$length = match List.set($length, $i, CompressOptimal.adjust_cost(cur, d, change_amount)) {
 				Ok(next) => next
-				Err(_) => return Err(CompressBug)
+				Err(_) => crash "CompressOptimal.adjust_costs_impl: length index out of bounds"
 			}
 			$i = $i + 1
 		}
@@ -302,11 +302,11 @@ CompressOptimal := [].{
 			d = CompressOptimal.default_offset_slot_cost($i)
 			$offset_slot = match List.set($offset_slot, $i, CompressOptimal.adjust_cost(cur, d, change_amount)) {
 				Ok(next) => next
-				Err(_) => return Err(CompressBug)
+				Err(_) => crash "CompressOptimal.adjust_costs_impl: offset_slot index out of bounds"
 			}
 			$i = $i + 1
 		}
-		Ok({ literal: $literal, length: $length, offset_slot: $offset_slot })
+		{ literal: $literal, length: $length, offset_slot: $offset_slot }
 	}
 
 	## Guess the default literal and length-symbol costs for a block from the
@@ -314,7 +314,7 @@ CompressOptimal := [].{
 	## greedy parse would have covered with matches.
 	DefaultCosts : { lit_cost : U64, len_sym_cost : U64 }
 
-	choose_default_litlen_costs : List(U8), U64, U64, List(U32), U64 -> Try(DefaultCosts, [CompressBug])
+	choose_default_litlen_costs : List(U8), U64, U64, List(U32), U64 -> DefaultCosts
 	choose_default_litlen_costs = |input, block_begin, block_length, match_len_freqs, max_search_depth| {
 		var $counts = List.repeat(0.U32, DeflateTables.num_literals)
 		# Literals that barely occur do not really widen the alphabet.
@@ -325,7 +325,7 @@ CompressOptimal := [].{
 			b_count = (List.get($counts, b) ?? 0) + 1
 			$counts = match List.set($counts, b, b_count) {
 				Ok(next) => next
-				Err(_) => return Err(CompressBug)
+				Err(_) => crash "CompressOptimal.choose_default_litlen_costs: counts index out of bounds"
 			}
 			$i = $i + 1
 		}
@@ -375,10 +375,10 @@ CompressOptimal := [].{
 			} else {
 				CompressOptimal.default_lit_cost_0
 			}
-		Ok({
+		{
 			lit_cost: (List.get(table, $num_used_literals) ?? 0).to_u64(),
 			len_sym_cost: (List.get(CompressOptimal.default_len_sym_costs, which) ?? 0).to_u64(),
-		})
+		}
 	}
 
 	## The path a min-cost search chose: for each position, the item that
@@ -409,13 +409,13 @@ CompressOptimal := [].{
 	## index `top - n` (see `node_top`): a position's node comes after every
 	## later position's, which is exactly what its cost scan reads. The tables
 	## keep their capacity from block to block and are never initialized.
-	find_min_cost_path : U64, List(U32), List(U32), U64, List(U32), List(U32), List(U32), List(U32), List(U32) -> Try(PathResult, [CompressBug])
+	find_min_cost_path : U64, List(U32), List(U32), U64, List(U32), List(U32), List(U32), List(U32), List(U32) -> PathResult
 	find_min_cost_path = |block_length, cache_len, cache_off, cache_end, node_cost_0, node_item_0, cost_literal, cost_length, cost_offset_slot| {
 		top = CompressOptimal.node_top(block_length)
 		# The length table has one cost per match length; stating its size here
 		# lets every per-length read below skip its bounds test.
 		if List.len(cost_length) < DeflateTables.max_match_len + 1 {
-			return Err(CompressBug)
+			crash "CompressOptimal.find_min_cost_path: length cost table too short"
 		} else {
 		}
 		var $node_cost = List.clear(node_cost_0)
@@ -437,7 +437,7 @@ CompressOptimal := [].{
 		# so the tables hold at least that many entries from here on: with that
 		# stated once, every node read below is provably in bounds.
 		if List.len($node_cost) < DeflateTables.max_match_len {
-			return Err(CompressBug)
+			crash "CompressOptimal.find_min_cost_path: node tables too short"
 		} else {
 		}
 
@@ -469,7 +469,7 @@ CompressOptimal := [].{
 					# lengths; stating that bounds every length tried below, so
 					# the per-length table reads skip their bounds tests.
 					if this_len > DeflateTables.max_match_len or this_len < DeflateTables.min_match_len {
-						return Err(CompressBug)
+						crash "CompressOptimal.find_min_cost_path: cached match length out of range"
 					} else {
 					}
 					# Lengths run from the one after the previous match's up to
@@ -499,7 +499,7 @@ CompressOptimal := [].{
 			$node_item = List.append($node_item, $item)
 		}
 
-		Ok({ node_cost: $node_cost, node_item: $node_item })
+		{ node_cost: $node_cost, node_item: $node_item }
 	}
 
 	## The index of node 0 in a path's node tables, which hold node `n` at
@@ -511,7 +511,7 @@ CompressOptimal := [].{
 
 	## Count the symbols a chosen path uses and build the Huffman codes for
 	## them, walking the path forwards this time.
-	tally_and_build_codes : List(U32), U64 -> Try(TallyResult, [CompressBug])
+	tally_and_build_codes : List(U32), U64 -> TallyResult
 	tally_and_build_codes = |node_item, block_length| {
 		var $freqs_litlen = List.repeat(0.U32, DeflateTables.num_litlen_syms)
 		var $freqs_offset = List.repeat(0.U32, DeflateTables.num_offset_syms)
@@ -525,20 +525,20 @@ CompressOptimal := [].{
 				offset_count = (List.get($freqs_litlen, offset) ?? 0) + 1
 				$freqs_litlen = match List.set($freqs_litlen, offset, offset_count) {
 					Ok(next) => next
-					Err(_) => return Err(CompressBug)
+					Err(_) => crash "CompressOptimal.tally_and_build_codes: freqs_litlen index out of bounds"
 				}
 			} else {
 				sym = DeflateTables.first_len_sym + DeflateTables.length_slot(length)
 				sym_count = (List.get($freqs_litlen, sym) ?? 0) + 1
 				$freqs_litlen = match List.set($freqs_litlen, sym, sym_count) {
 					Ok(next) => next
-					Err(_) => return Err(CompressBug)
+					Err(_) => crash "CompressOptimal.tally_and_build_codes: freqs_litlen index out of bounds"
 				}
 				slot = DeflateTables.offset_slot(offset)
 				slot_count = (List.get($freqs_offset, slot) ?? 0) + 1
 				$freqs_offset = match List.set($freqs_offset, slot, slot_count) {
 					Ok(next) => next
-					Err(_) => return Err(CompressBug)
+					Err(_) => crash "CompressOptimal.tally_and_build_codes: freqs_offset index out of bounds"
 				}
 			}
 			$at = $at + length
@@ -546,7 +546,7 @@ CompressOptimal := [].{
 		$freqs_litlen = match List.set($freqs_litlen, DeflateTables.end_of_block,
 			(List.get($freqs_litlen, DeflateTables.end_of_block) ?? 0) + 1) {
 			Ok(next) => next
-			Err(_) => return Err(CompressBug)
+			Err(_) => crash "CompressOptimal.tally_and_build_codes: freqs_litlen index out of bounds"
 		}
 
 		litlen_code = HuffmanEncode.make_code(
@@ -555,23 +555,23 @@ CompressOptimal := [].{
 			$freqs_litlen,
 			List.repeat(0.U8, DeflateTables.num_litlen_syms),
 			List.repeat(0.U32, DeflateTables.num_litlen_syms),
-		)?
+		)
 		offset_code = HuffmanEncode.make_code(
 			DeflateTables.num_offset_syms,
 			BlockOut.max_offset_codeword_len,
 			$freqs_offset,
 			List.repeat(0.U8, DeflateTables.num_offset_syms),
 			List.repeat(0.U32, DeflateTables.num_offset_syms),
-		)?
+		)
 
-		Ok({
+		{
 			freqs_litlen: $freqs_litlen,
 			freqs_offset: $freqs_offset,
 			litlen_lens: litlen_code.lens,
 			litlen_codewords: litlen_code.codewords,
 			offset_lens: offset_code.lens,
 			offset_codewords: offset_code.codewords,
-		})
+		}
 	}
 
 	LiteralChoice : {
@@ -585,7 +585,7 @@ CompressOptimal := [].{
 
 	## Build the codes for the alternative in which the block is nothing but
 	## literals, which on some data beats anything the optimizer finds.
-	choose_all_literals : List(U8), U64, U64 -> Try(LiteralChoice, [CompressBug])
+	choose_all_literals : List(U8), U64, U64 -> LiteralChoice
 	choose_all_literals = |input, block_begin, block_length| {
 		var $freqs_litlen = List.repeat(0.U32, DeflateTables.num_litlen_syms)
 		freqs_offset = List.repeat(0.U32, DeflateTables.num_offset_syms)
@@ -595,14 +595,14 @@ CompressOptimal := [].{
 			b_count = (List.get($freqs_litlen, b) ?? 0) + 1
 			$freqs_litlen = match List.set($freqs_litlen, b, b_count) {
 				Ok(next) => next
-				Err(_) => return Err(CompressBug)
+				Err(_) => crash "CompressOptimal.choose_all_literals: freqs_litlen index out of bounds"
 			}
 			$i = $i + 1
 		}
 		$freqs_litlen = match List.set($freqs_litlen, DeflateTables.end_of_block,
 			(List.get($freqs_litlen, DeflateTables.end_of_block) ?? 0) + 1) {
 			Ok(next) => next
-			Err(_) => return Err(CompressBug)
+			Err(_) => crash "CompressOptimal.choose_all_literals: freqs_litlen index out of bounds"
 		}
 		litlen_code = HuffmanEncode.make_code(
 			DeflateTables.num_litlen_syms,
@@ -610,22 +610,22 @@ CompressOptimal := [].{
 			$freqs_litlen,
 			List.repeat(0.U8, DeflateTables.num_litlen_syms),
 			List.repeat(0.U32, DeflateTables.num_litlen_syms),
-		)?
+		)
 		offset_code = HuffmanEncode.make_code(
 			DeflateTables.num_offset_syms,
 			BlockOut.max_offset_codeword_len,
 			freqs_offset,
 			List.repeat(0.U8, DeflateTables.num_offset_syms),
 			List.repeat(0.U32, DeflateTables.num_offset_syms),
-		)?
-		Ok({
+		)
+		{
 			freqs_litlen: $freqs_litlen,
 			freqs_offset: freqs_offset,
 			litlen_lens: litlen_code.lens,
 			litlen_codewords: litlen_code.codewords,
 			offset_lens: offset_code.lens,
 			offset_codewords: offset_code.codewords,
-		})
+		}
 	}
 
 	## Exact cost in bits of writing the block as a dynamic Huffman block with
@@ -633,9 +633,9 @@ CompressOptimal := [].{
 	##
 	## This is what the optimizer's own cost model is only an approximation of,
 	## so it is what the passes are compared on.
-	compute_true_cost : List(U8), List(U8), List(U32), List(U32) -> Try(U64, [CompressBug])
+	compute_true_cost : List(U8), List(U8), List(U32), List(U32) -> U64
 	compute_true_cost = |litlen_lens, offset_lens, freqs_litlen, freqs_offset| {
-		precode = BlockOut.precompute_huffman_header(litlen_lens, offset_lens)?
+		precode = BlockOut.precompute_huffman_header(litlen_lens, offset_lens)
 
 		var $cost = 5.U64 + 5 + 4 + 3 * precode.num_explicit_lens
 		var $sym = 0.U64
@@ -669,14 +669,14 @@ CompressOptimal := [].{
 					* ((List.get(offset_lens, $sym) ?? 0).to_u64() + extra)
 			$sym = $sym + 1
 		}
-		Ok($cost)
+		$cost
 	}
 
 	## Compress with the near-optimal parser.
-	compress : List(U8), Params -> Try(List(U8), [CompressBug])
+	compress : List(U8), Params -> List(U8)
 	compress = |input, params| {
 		in_end = List.len(input)
-		static = CompressLazy.build_static_codes(0)?
+		static = CompressLazy.build_static_codes(0)
 		var $s_litlen_lens = static.litlen_lens
 		var $s_litlen_codewords = static.litlen_codewords
 		var $s_offset_lens = static.offset_lens
@@ -757,7 +757,7 @@ CompressOptimal := [].{
 						$in_block_begin,
 						in_max_block_end - $in_block_begin,
 						params.max_search_depth,
-					)?
+					)
 				}
 
 			var $in_block = 1.U64
@@ -781,7 +781,7 @@ CompressOptimal := [].{
 				} else {
 				}
 				if $max_len >= BtMatchfinder.required_nbytes {
-					adv = BtMatchfinder.get_matches(
+					adv = match BtMatchfinder.get_matches(
 						$tab3,
 						$tab4,
 						$child,
@@ -796,7 +796,9 @@ CompressOptimal := [].{
 						$cache_len,
 						$cache_off,
 						$cache_ptr,
-					)?
+					) {
+						Ok(v) => v
+					}
 					$tab3 = adv.hash3
 					$tab4 = adv.hash4
 					$child = adv.child
@@ -821,14 +823,14 @@ CompressOptimal := [].{
 						obs_count = (List.get($new_observations, obs) ?? 0).plus_wrap(1)
 						$new_observations = match List.set($new_observations, obs, obs_count) {
 							Ok(next) => next
-							Err(_) => return Err(CompressBug)
+							Err(_) => crash "CompressOptimal.compress: new_observations index out of bounds"
 						}
 						$num_new_observations = $num_new_observations.plus_wrap(1)
 						$next_observation = $in_next.plus_wrap($best_len)
 						$new_match_len_freqs = match List.set($new_match_len_freqs, $best_len,
 							(List.get($new_match_len_freqs, $best_len) ?? 0).plus_wrap(1)) {
 							Ok(next) => next
-							Err(_) => return Err(CompressBug)
+							Err(_) => crash "CompressOptimal.compress: new_match_len_freqs index out of bounds"
 						}
 					} else {
 						lit = (List.get(input, $in_next) ?? 0).to_u64()
@@ -836,7 +838,7 @@ CompressOptimal := [].{
 						obs_count = (List.get($new_observations, obs) ?? 0).plus_wrap(1)
 						$new_observations = match List.set($new_observations, obs, obs_count) {
 							Ok(next) => next
-							Err(_) => return Err(CompressBug)
+							Err(_) => crash "CompressOptimal.compress: new_observations index out of bounds"
 						}
 						$num_new_observations = $num_new_observations.plus_wrap(1)
 						$next_observation = $in_next.plus_wrap(1)
@@ -848,11 +850,11 @@ CompressOptimal := [].{
 				# written for it and the literal that starts there.
 				$cache_len = match List.set($cache_len, $cache_ptr, $cache_ptr.minus_wrap(matches_at).to_u32_wrap()) {
 					Ok(next) => next
-					Err(_) => return Err(CompressBug)
+					Err(_) => crash "CompressOptimal.compress: cache_len index out of bounds"
 				}
 				$cache_off = match List.set($cache_off, $cache_ptr, (List.get(input, $in_next) ?? 0).to_u32()) {
 					Ok(next) => next
-					Err(_) => return Err(CompressBug)
+					Err(_) => crash "CompressOptimal.compress: cache_off index out of bounds"
 				}
 				$in_next = $in_next.plus_wrap(1)
 				$cache_ptr = $cache_ptr.plus_wrap(1)
@@ -879,7 +881,7 @@ CompressOptimal := [].{
 						} else {
 						}
 						if $max_len >= BtMatchfinder.required_nbytes {
-							sk = BtMatchfinder.skip_byte(
+							sk = match BtMatchfinder.skip_byte(
 								$tab3,
 								$tab4,
 								$child,
@@ -890,7 +892,9 @@ CompressOptimal := [].{
 								$in_next.minus_wrap($in_cur_base),
 								$nice_len,
 								params.max_search_depth,
-							)?
+							) {
+								Ok(v) => v
+							}
 							$tab3 = sk.hash3
 							$tab4 = sk.hash4
 							$child = sk.child
@@ -900,11 +904,11 @@ CompressOptimal := [].{
 						}
 						$cache_len = match List.set($cache_len, $cache_ptr, 0) {
 							Ok(next) => next
-							Err(_) => return Err(CompressBug)
+							Err(_) => crash "CompressOptimal.compress: cache_len index out of bounds"
 						}
 						$cache_off = match List.set($cache_off, $cache_ptr, (List.get(input, $in_next) ?? 0).to_u32()) {
 							Ok(next) => next
-							Err(_) => return Err(CompressBug)
+							Err(_) => crash "CompressOptimal.compress: cache_off index out of bounds"
 						}
 						$in_next = $in_next.plus_wrap(1)
 						$cache_ptr = $cache_ptr.plus_wrap(1)
@@ -922,12 +926,12 @@ CompressOptimal := [].{
 						$change_detected = 1
 						$in_block = 0
 					} else {
-						ms = CompressLazy.merge_observations($new_observations, $observations, $num_new_observations, $num_observations)?
+						ms = CompressLazy.merge_observations($new_observations, $observations, $num_new_observations, $num_observations)
 						$new_observations = ms.new_observations
 						$observations = ms.observations
 						$num_new_observations = ms.num_new_observations
 						$num_observations = ms.num_observations
-						merged = CompressOptimal.merge_match_len_freqs($match_len_freqs, $new_match_len_freqs)?
+						merged = CompressOptimal.merge_match_len_freqs($match_len_freqs, $new_match_len_freqs)
 						$match_len_freqs = merged.total
 						$new_match_len_freqs = merged.fresh
 						$prev_end_block_check = $in_next
@@ -958,10 +962,10 @@ CompressOptimal := [].{
 				}
 				$rewound = $cache_ptr - $cache_end
 			} else {
-				merged = CompressOptimal.merge_match_len_freqs($match_len_freqs, $new_match_len_freqs)?
+				merged = CompressOptimal.merge_match_len_freqs($match_len_freqs, $new_match_len_freqs)
 				$match_len_freqs = merged.total
 				$new_match_len_freqs = merged.fresh
-				ms = CompressLazy.merge_observations($new_observations, $observations, $num_new_observations, $num_observations)?
+				ms = CompressLazy.merge_observations($new_observations, $observations, $num_new_observations, $num_observations)
 				$new_observations = ms.new_observations
 				$observations = ms.observations
 				$num_new_observations = ms.num_new_observations
@@ -972,13 +976,13 @@ CompressOptimal := [].{
 
 			# Cost the all-literals alternative before anything else, since it
 			# is the only one that does not depend on the cost model.
-			lits = CompressOptimal.choose_all_literals(input, $in_block_begin, block_length)?
+			lits = CompressOptimal.choose_all_literals(input, $in_block_begin, block_length)
 			only_lits_cost = CompressOptimal.compute_true_cost(
 				lits.litlen_lens,
 				lits.offset_lens,
 				lits.freqs_litlen,
 				lits.freqs_offset,
-			)?
+			)
 
 			# A static Huffman block is sometimes cheapest, especially a short
 			# one. When the block is short enough to be worth the time, find
@@ -991,7 +995,7 @@ CompressOptimal := [].{
 					List.repeat(0.U32, DeflateTables.num_literals),
 					List.repeat(0.U32, DeflateTables.max_match_len + 1),
 					List.repeat(0.U32, DeflateTables.num_offset_syms),
-				)?
+				)
 				path = CompressOptimal.find_min_cost_path(
 					block_length,
 					$cache_len,
@@ -1002,7 +1006,7 @@ CompressOptimal := [].{
 					sc.literal,
 					sc.length,
 					sc.offset_slot,
-				)?
+				)
 				$node_cost = path.node_cost
 				$node_item = path.node_item
 				$static_cost = (List.last($node_cost) ?? 0).to_u64() // CompressOptimal.bit_cost + 7
@@ -1018,7 +1022,7 @@ CompressOptimal := [].{
 				block_length,
 				$match_len_freqs,
 				params.max_search_depth,
-			)?
+			)
 			initial =
 				if is_first == 1 {
 					CompressOptimal.set_default_costs(
@@ -1027,7 +1031,7 @@ CompressOptimal := [].{
 						$cost_literal,
 						$cost_length,
 						$cost_offset_slot,
-					)?
+					)
 				} else {
 					CompressOptimal.adjust_costs(
 						defaults.lit_cost,
@@ -1039,7 +1043,7 @@ CompressOptimal := [].{
 						$cost_literal,
 						$cost_length,
 						$cost_offset_slot,
-					)?
+					)
 				}
 			$cost_literal = initial.literal
 			$cost_length = initial.length
@@ -1067,10 +1071,10 @@ CompressOptimal := [].{
 					$cost_literal,
 					$cost_length,
 					$cost_offset_slot,
-				)?
+				)
 				$node_cost = path.node_cost
 				$node_item = path.node_item
-				tallied = CompressOptimal.tally_and_build_codes($node_item, block_length)?
+				tallied = CompressOptimal.tally_and_build_codes($node_item, block_length)
 				$freqs_litlen = tallied.freqs_litlen
 				$freqs_offset = tallied.freqs_offset
 				$litlen_lens = tallied.litlen_lens
@@ -1085,7 +1089,7 @@ CompressOptimal := [].{
 					$offset_lens,
 					$freqs_litlen,
 					$freqs_offset,
-				)?
+				)
 
 				if $true_cost + params.min_improvement_to_continue > $best_true_cost {
 					# Barely an improvement, so further passes are unlikely to
@@ -1102,7 +1106,7 @@ CompressOptimal := [].{
 						$cost_literal,
 						$cost_length,
 						$cost_offset_slot,
-					)?
+					)
 					$cost_literal = from_codes.literal
 					$cost_length = from_codes.length
 					$cost_offset_slot = from_codes.offset_slot
@@ -1118,7 +1122,7 @@ CompressOptimal := [].{
 			var $used_only_literals = 0.U64
 			if only_lits_cost.min($static_cost) < $best_true_cost {
 				if only_lits_cost < $static_cost {
-					relits = CompressOptimal.choose_all_literals(input, $in_block_begin, block_length)?
+					relits = CompressOptimal.choose_all_literals(input, $in_block_begin, block_length)
 					$freqs_litlen = relits.freqs_litlen
 					$freqs_offset = relits.freqs_offset
 					$litlen_lens = relits.litlen_lens
@@ -1131,7 +1135,7 @@ CompressOptimal := [].{
 						$cost_literal,
 						$cost_length,
 						$cost_offset_slot,
-					)?
+					)
 					$cost_literal = from_codes.literal
 					$cost_length = from_codes.length
 					$cost_offset_slot = from_codes.offset_slot
@@ -1141,7 +1145,7 @@ CompressOptimal := [].{
 						offset_slot: 0.U16,
 					}) {
 						Ok(next) => next
-						Err(_) => return Err(CompressBug)
+						Err(_) => crash "CompressOptimal.compress: seqs index out of bounds"
 					}
 					$use_items = 0
 					$used_only_literals = 1
@@ -1152,7 +1156,7 @@ CompressOptimal := [].{
 						$cost_literal,
 						$cost_length,
 						$cost_offset_slot,
-					)?
+					)
 					$cost_literal = from_codes.literal
 					$cost_length = from_codes.length
 					$cost_offset_slot = from_codes.offset_slot
@@ -1166,10 +1170,10 @@ CompressOptimal := [].{
 						$cost_literal,
 						$cost_length,
 						$cost_offset_slot,
-					)?
+					)
 					$node_cost = path.node_cost
 					$node_item = path.node_item
-					tallied = CompressOptimal.tally_and_build_codes($node_item, block_length)?
+					tallied = CompressOptimal.tally_and_build_codes($node_item, block_length)
 					$freqs_litlen = tallied.freqs_litlen
 					$freqs_offset = tallied.freqs_offset
 					$litlen_lens = tallied.litlen_lens
@@ -1193,10 +1197,10 @@ CompressOptimal := [].{
 					$cost_literal,
 					$cost_length,
 					$cost_offset_slot,
-				)?
+				)
 				$node_cost = path.node_cost
 				$node_item = path.node_item
-				tallied = CompressOptimal.tally_and_build_codes($node_item, block_length)?
+				tallied = CompressOptimal.tally_and_build_codes($node_item, block_length)
 				$freqs_litlen = tallied.freqs_litlen
 				$freqs_offset = tallied.freqs_offset
 				$litlen_lens = tallied.litlen_lens
@@ -1209,7 +1213,7 @@ CompressOptimal := [].{
 					$cost_literal,
 					$cost_length,
 					$cost_offset_slot,
-				)?
+				)
 				$cost_literal = from_codes.literal
 				$cost_length = from_codes.length
 				$cost_offset_slot = from_codes.offset_slot
@@ -1237,7 +1241,7 @@ CompressOptimal := [].{
 				$node_item,
 				$use_items,
 				$is_final,
-			)?
+			)
 			$out = flushed.out
 			$bitbuf = flushed.bitbuf
 			$bitcount = flushed.bitcount
@@ -1262,12 +1266,12 @@ CompressOptimal := [].{
 					v_len = List.get($cache_len, $cache_end + $k) ?? 0
 					$cache_len = match List.set($cache_len, $k, v_len) {
 						Ok(next) => next
-						Err(_) => return Err(CompressBug)
+						Err(_) => crash "CompressOptimal.compress: cache_len index out of bounds"
 					}
 					v_off = List.get($cache_off, $cache_end + $k) ?? 0
 					$cache_off = match List.set($cache_off, $k, v_off) {
 						Ok(next) => next
-						Err(_) => return Err(CompressBug)
+						Err(_) => crash "CompressOptimal.compress: cache_off index out of bounds"
 					}
 					$k = $k + 1
 				}
@@ -1299,14 +1303,14 @@ CompressOptimal := [].{
 			$out = List.append($out, $bitbuf.to_u8_wrap())
 		} else {
 		}
-		Ok($out)
+		$out
 	}
 
 	MergedFreqs : { total : List(U32), fresh : List(U32) }
 
 	## Fold the match lengths seen since the last check into the block's
 	## running totals.
-	merge_match_len_freqs : List(U32), List(U32) -> Try(MergedFreqs, [CompressBug])
+	merge_match_len_freqs : List(U32), List(U32) -> MergedFreqs
 	merge_match_len_freqs = |total_0, fresh_0| {
 		var $total = total_0
 		var $fresh = fresh_0
@@ -1317,17 +1321,17 @@ CompressOptimal := [].{
 				total_count = (List.get($total, $i) ?? 0) + f
 				$total = match List.set($total, $i, total_count) {
 					Ok(next) => next
-					Err(_) => return Err(CompressBug)
+					Err(_) => crash "CompressOptimal.merge_match_len_freqs: total index out of bounds"
 				}
 				$fresh = match List.set($fresh, $i, 0) {
 					Ok(next) => next
-					Err(_) => return Err(CompressBug)
+					Err(_) => crash "CompressOptimal.merge_match_len_freqs: fresh index out of bounds"
 				}
 			} else {
 			}
 			$i = $i + 1
 		}
-		Ok({ total: $total, fresh: $fresh })
+		{ total: $total, fresh: $fresh }
 	}
 
 	## Mix the previous block's model with the defaults according to how alike
@@ -1336,7 +1340,7 @@ CompressOptimal := [].{
 	## The comparison is the same sum-of-absolute-differences test the
 	## block-splitter uses, but between two whole blocks rather than a block
 	## and a small tail of it.
-	adjust_costs : U64, U64, List(U32), U64, List(U32), U64, List(U32), List(U32), List(U32) -> Try(Costs, [CompressBug])
+	adjust_costs : U64, U64, List(U32), U64, List(U32), U64, List(U32), List(U32), List(U32) -> Costs
 	adjust_costs = |lit_cost, len_sym_cost, prev_observations, prev_num_observations, observations, num_observations, literal_0, length_0, offset_slot_0| {
 		var $total_delta = 0.U64
 		var $i = 0.U64

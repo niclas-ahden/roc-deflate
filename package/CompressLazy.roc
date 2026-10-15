@@ -71,12 +71,12 @@ CompressLazy := [].{
 
 	## First approximation of the minimum match length, from the distinct
 	## literals in the first few kilobytes of the block.
-	calculate_min_match_len : List(U8), U64, U64, U64 -> Try(U64, [CompressBug])
+	calculate_min_match_len : List(U8), U64, U64, U64 -> U64
 	calculate_min_match_len = |data, at, data_len0, max_search_depth| {
 		if data_len0 < 512 {
 			# Short inputs often end up as static Huffman blocks, where short
 			# matches cost nothing extra.
-			Ok(DeflateTables.min_match_len)
+			DeflateTables.min_match_len
 		} else {
 			data_len = data_len0.min(4096)
 			var $used = List.repeat(0.U8, 256)
@@ -85,7 +85,7 @@ CompressLazy := [].{
 				b = (List.get(data, at + $i) ?? 0).to_u64()
 				$used = match List.set($used, b, 1) {
 					Ok(next) => next
-					Err(_) => return Err(CompressBug)
+					Err(_) => crash "CompressLazy.calculate_min_match_len: used index out of bounds"
 				}
 				$i = $i + 1
 			}
@@ -95,7 +95,7 @@ CompressLazy := [].{
 				$num_used = $num_used + (List.get($used, $i) ?? 0).to_u64()
 				$i = $i + 1
 			}
-			Ok(CompressLazy.choose_min_match_len($num_used, max_search_depth))
+			CompressLazy.choose_min_match_len($num_used, max_search_depth)
 		}
 	}
 
@@ -176,7 +176,7 @@ CompressLazy := [].{
 		num_observations : U64,
 	}
 
-	merge_observations : List(U32), List(U32), U64, U64 -> Try(MergedObservations, [CompressBug])
+	merge_observations : List(U32), List(U32), U64, U64 -> MergedObservations
 	merge_observations = |new_observations_0, observations_0, num_new_observations, num_observations| {
 		var $observations = observations_0
 		var $new_observations = new_observations_0
@@ -185,24 +185,24 @@ CompressLazy := [].{
 			merged = (List.get($observations, $i) ?? 0) + (List.get($new_observations, $i) ?? 0)
 			$observations = match List.set($observations, $i, merged) {
 				Ok(next) => next
-				Err(_) => return Err(CompressBug)
+				Err(_) => crash "CompressLazy.merge_observations: observations index out of bounds"
 			}
 			$new_observations = match List.set($new_observations, $i, 0) {
 				Ok(next) => next
-				Err(_) => return Err(CompressBug)
+				Err(_) => crash "CompressLazy.merge_observations: new_observations index out of bounds"
 			}
 			$i = $i + 1
 		}
-		Ok({
+		{
 			observations: $observations,
 			new_observations: $new_observations,
 			num_observations: num_observations + num_new_observations,
 			num_new_observations: 0,
-		})
+		}
 	}
 	## The static Huffman code RFC 1951 defines, built once per stream so a
 	## block can be costed against it.
-	build_static_codes : U64 -> Try(BlockOut.Codes, [CompressBug])
+	build_static_codes : U64 -> BlockOut.Codes
 	build_static_codes = |_unused| {
 		var $freqs_litlen = List.repeat(0.U32, DeflateTables.num_litlen_syms)
 		var $i = 0.U64
@@ -219,7 +219,7 @@ CompressLazy := [].{
 				}
 			$freqs_litlen = match List.set($freqs_litlen, $i, f) {
 				Ok(next) => next
-				Err(_) => return Err(CompressBug)
+				Err(_) => crash "CompressLazy.build_static_codes: freqs_litlen index out of bounds"
 			}
 			$i = $i + 1
 		}
@@ -229,20 +229,20 @@ CompressLazy := [].{
 			$freqs_litlen,
 			List.repeat(0.U8, DeflateTables.num_litlen_syms),
 			List.repeat(0.U32, DeflateTables.num_litlen_syms),
-		)?
+		)
 		offset = HuffmanEncode.make_code(
 			DeflateTables.num_offset_syms,
 			BlockOut.max_offset_codeword_len,
 			List.repeat(1.U32, DeflateTables.num_offset_syms),
 			List.repeat(0.U8, DeflateTables.num_offset_syms),
 			List.repeat(0.U32, DeflateTables.num_offset_syms),
-		)?
-		Ok({
+		)
+		{
 			litlen_lens: litlen.lens,
 			litlen_codewords: litlen.codewords,
 			offset_lens: offset.lens,
 			offset_codewords: offset.codewords,
-		})
+		}
 	}
 
 	## Index of the highest set bit, which stands in for the cost of an offset:
@@ -255,13 +255,13 @@ CompressLazy := [].{
 	##
 	## Unlike the lazy parser this never looks ahead, so it has no reason to
 	## revise the minimum match length mid-block either.
-	compress_greedy : List(U8), Params -> Try(List(U8), [CompressBug])
+	compress_greedy : List(U8), Params -> List(U8)
 	compress_greedy = |input, params| {
 		in_end = List.len(input)
 		# Positions before this one have a full-length match in reach, so the
 		# search there needs no shortening.
 		full_search_end = if in_end >= DeflateTables.max_match_len { in_end - (DeflateTables.max_match_len - 1) } else { 0 }
-		static = CompressLazy.build_static_codes(0)?
+		static = CompressLazy.build_static_codes(0)
 		var $s_litlen_lens = static.litlen_lens
 		var $s_litlen_codewords = static.litlen_codewords
 		var $s_offset_lens = static.offset_lens
@@ -304,7 +304,7 @@ CompressLazy := [].{
 			# the size once here lets every table write in the block skip its
 			# bounds test.
 			if List.len($mf) < HcMatchfinder.table_size {
-				return Err(CompressBug)
+				crash "CompressLazy.compress_greedy: hash-chain tables too short"
 			} else {
 			}
 			var $litrunlen = 0.U32
@@ -313,7 +313,7 @@ CompressLazy := [].{
 				$in_next,
 				in_max_block_end - $in_next,
 				params.max_search_depth,
-			)?
+			)
 
 			# Wrapping arithmetic on the per-position path: the cursor never passes
 			# the input end, a match is at least three bytes and at most 258, the
@@ -356,15 +356,15 @@ CompressLazy := [].{
 						pos = (cur_pos.plus_wrap(Matchfinder.node_bias)).to_u16_wrap()
 						$mf = match List.set($mf, HcMatchfinder.hash3_base.plus_wrap($nh3), pos) {
 							Ok(next) => next
-							Err(_) => return Err(CompressBug)
+							Err(_) => crash "CompressLazy.compress_greedy: mf index out of bounds"
 						}
 						$mf = match List.set($mf, HcMatchfinder.hash4_base.plus_wrap($nh4), pos) {
 							Ok(next) => next
-							Err(_) => return Err(CompressBug)
+							Err(_) => crash "CompressLazy.compress_greedy: mf index out of bounds"
 						}
 						$mf = match List.set($mf, cur_pos, cur_node4) {
 							Ok(next) => next
-							Err(_) => return Err(CompressBug)
+							Err(_) => crash "CompressLazy.compress_greedy: mf index out of bounds"
 						}
 						next_hashseq = U32.from_le_bytes(input, $in_next.plus_wrap(1)) ?? 0
 						$nh3 = Matchfinder.lz_hash(next_hashseq.bitwise_and(0xFFFFFF), HcMatchfinder.hash3_order)
@@ -514,13 +514,13 @@ CompressLazy := [].{
 						lit_count = (List.get($freqs_litlen, lit) ?? 0).plus_wrap(1)
 						$freqs_litlen = match List.set($freqs_litlen, lit, lit_count) {
 							Ok(next) => next
-							Err(_) => return Err(CompressBug)
+							Err(_) => crash "CompressLazy.compress_greedy: freqs_litlen index out of bounds"
 						}
 						obs = lit.shr_zf_wrap(5).bitwise_and(0x6).bitwise_or(lit.bitwise_and(1))
 						obs_count = (List.get($new_observations, obs) ?? 0).plus_wrap(1)
 						$new_observations = match List.set($new_observations, obs, obs_count) {
 							Ok(next) => next
-							Err(_) => return Err(CompressBug)
+							Err(_) => crash "CompressLazy.compress_greedy: new_observations index out of bounds"
 						}
 						$num_new_observations = $num_new_observations.plus_wrap(1)
 						$litrunlen = $litrunlen.plus_wrap(1)
@@ -540,18 +540,18 @@ CompressLazy := [].{
 					litlen_sym_count = (List.get($freqs_litlen, litlen_sym) ?? 0).plus_wrap(1)
 					$freqs_litlen = match List.set($freqs_litlen, litlen_sym, litlen_sym_count) {
 						Ok(next) => next
-						Err(_) => return Err(CompressBug)
+						Err(_) => crash "CompressLazy.compress_greedy: freqs_litlen index out of bounds"
 					}
 					offset_slot_count = (List.get($freqs_offset, offset_slot) ?? 0).plus_wrap(1)
 					$freqs_offset = match List.set($freqs_offset, offset_slot, offset_slot_count) {
 						Ok(next) => next
-						Err(_) => return Err(CompressBug)
+						Err(_) => crash "CompressLazy.compress_greedy: freqs_offset index out of bounds"
 					}
 					obs = if $found.length >= 9 { 9 } else { 8 }
 					obs_count = (List.get($new_observations, obs) ?? 0).plus_wrap(1)
 					$new_observations = match List.set($new_observations, obs, obs_count) {
 						Ok(next) => next
-						Err(_) => return Err(CompressBug)
+						Err(_) => crash "CompressLazy.compress_greedy: new_observations index out of bounds"
 					}
 					$num_new_observations = $num_new_observations.plus_wrap(1)
 					$seqs = List.append($seqs, {
@@ -573,7 +573,9 @@ CompressLazy := [].{
 						or List.len($mf) < HcMatchfinder.table_size
 						or $nh3 >= HcMatchfinder.hash3_size
 						or $nh4 >= HcMatchfinder.hash4_size {
-						skipped = HcMatchfinder.skip_bytes($mf, $base, $nh3, $nh4, input, $in_next.plus_wrap(1), in_end, $found.length.minus_wrap(1))?
+						skipped = match HcMatchfinder.skip_bytes($mf, $base, $nh3, $nh4, input, $in_next.plus_wrap(1), in_end, $found.length.minus_wrap(1)) {
+							Ok(v) => v
+						}
 						$mf = skipped.tab
 						$base = skipped.in_cur_base
 						$nh3 = skipped.next_hash3
@@ -590,15 +592,15 @@ CompressLazy := [].{
 							prev_head = List.get($mf, HcMatchfinder.hash4_base.plus_wrap($nh4)) ?? 0
 							$mf = match List.set($mf, HcMatchfinder.hash3_base.plus_wrap($nh3), skip_node) {
 								Ok(next) => next
-								Err(_) => return Err(CompressBug)
+								Err(_) => crash "CompressLazy.compress_greedy: mf index out of bounds"
 							}
 							$mf = match List.set($mf, skip_pos.bitwise_and(32767), prev_head) {
 								Ok(next) => next
-								Err(_) => return Err(CompressBug)
+								Err(_) => crash "CompressLazy.compress_greedy: mf index out of bounds"
 							}
 							$mf = match List.set($mf, HcMatchfinder.hash4_base.plus_wrap($nh4), skip_node) {
 								Ok(next) => next
-								Err(_) => return Err(CompressBug)
+								Err(_) => crash "CompressLazy.compress_greedy: mf index out of bounds"
 							}
 							$skip_at = $skip_at.plus_wrap(1)
 							skip_hashseq = U32.from_le_bytes(input, $skip_at) ?? 0
@@ -620,7 +622,7 @@ CompressLazy := [].{
 					if CompressLazy.do_end_block_check($new_observations, $observations, $num_new_observations, $num_observations, $in_next.minus_wrap(in_block_begin)) == 1 {
 						$in_block = 0
 					} else {
-						ms = CompressLazy.merge_observations($new_observations, $observations, $num_new_observations, $num_observations)?
+						ms = CompressLazy.merge_observations($new_observations, $observations, $num_new_observations, $num_observations)
 						$new_observations = ms.new_observations
 						$observations = ms.observations
 						$num_new_observations = ms.num_new_observations
@@ -638,7 +640,7 @@ CompressLazy := [].{
 			$freqs_litlen = match List.set($freqs_litlen, DeflateTables.end_of_block,
 				(List.get($freqs_litlen, DeflateTables.end_of_block) ?? 0) + 1) {
 				Ok(next) => next
-				Err(_) => return Err(CompressBug)
+				Err(_) => crash "CompressLazy.compress_greedy: freqs_litlen index out of bounds"
 			}
 			litlen_code = HuffmanEncode.make_code(
 				DeflateTables.num_litlen_syms,
@@ -646,14 +648,14 @@ CompressLazy := [].{
 				$freqs_litlen,
 				List.repeat(0.U8, DeflateTables.num_litlen_syms),
 				List.repeat(0.U32, DeflateTables.num_litlen_syms),
-			)?
+			)
 			offset_code = HuffmanEncode.make_code(
 				DeflateTables.num_offset_syms,
 				BlockOut.max_offset_codeword_len,
 				$freqs_offset,
 				List.repeat(0.U8, DeflateTables.num_offset_syms),
 				List.repeat(0.U32, DeflateTables.num_offset_syms),
-			)?
+			)
 
 			is_final = if $in_next == in_end { 1 } else { 0 }
 			flushed = BlockOut.flush_block(
@@ -677,7 +679,7 @@ CompressLazy := [].{
 				[],
 				0,
 				is_final,
-			)?
+			)
 			$out = flushed.out
 			$bitbuf = flushed.bitbuf
 			$bitcount = flushed.bitcount
@@ -697,17 +699,17 @@ CompressLazy := [].{
 			$out = List.append($out, $bitbuf.to_u8_wrap())
 		} else {
 		}
-		Ok($out)
+		$out
 	}
 
 	## Compress with the greedy or lazy parser.
 	##
 	## `params.lazy` selects how far ahead the parser looks before committing to
 	## a match: zero is greedy, one is lazy, two is lazy2.
-	compress : List(U8), Params -> Try(List(U8), [CompressBug])
+	compress : List(U8), Params -> List(U8)
 	compress = |input, params| {
 		in_end = List.len(input)
-		static = CompressLazy.build_static_codes(0)?
+		static = CompressLazy.build_static_codes(0)
 		var $s_litlen_lens = static.litlen_lens
 		var $s_litlen_codewords = static.litlen_codewords
 		var $s_offset_lens = static.offset_lens
@@ -752,7 +754,7 @@ CompressLazy := [].{
 			# the size once here lets every table write in the block skip its
 			# bounds test.
 			if List.len($mf) < HcMatchfinder.table_size {
-				return Err(CompressBug)
+				crash "CompressLazy.compress: hash-chain tables too short"
 			} else {
 			}
 			var $litrunlen = 0.U32
@@ -761,7 +763,7 @@ CompressLazy := [].{
 				$in_next,
 				in_max_block_end - $in_next,
 				params.max_search_depth,
-			)?
+			)
 
 			# Wrapping arithmetic on the per-position path: the cursor never passes
 			# the input end, a match is at least three bytes and at most 258, the
@@ -804,15 +806,15 @@ CompressLazy := [].{
 					pos = (cur_pos.plus_wrap(Matchfinder.node_bias)).to_u16_wrap()
 					$mf = match List.set($mf, HcMatchfinder.hash3_base.plus_wrap($nh3), pos) {
 						Ok(next) => next
-						Err(_) => return Err(CompressBug)
+						Err(_) => crash "CompressLazy.compress: mf index out of bounds"
 					}
 					$mf = match List.set($mf, HcMatchfinder.hash4_base.plus_wrap($nh4), pos) {
 						Ok(next) => next
-						Err(_) => return Err(CompressBug)
+						Err(_) => crash "CompressLazy.compress: mf index out of bounds"
 					}
 					$mf = match List.set($mf, cur_pos, cur_node4) {
 						Ok(next) => next
-						Err(_) => return Err(CompressBug)
+						Err(_) => crash "CompressLazy.compress: mf index out of bounds"
 					}
 					next_hashseq = U32.from_le_bytes(input, $in_next.plus_wrap(1)) ?? 0
 					$nh3 = Matchfinder.lz_hash(next_hashseq.bitwise_and(0xFFFFFF), HcMatchfinder.hash3_order)
@@ -961,13 +963,13 @@ CompressLazy := [].{
 					lit_count = (List.get($freqs_litlen, lit) ?? 0).plus_wrap(1)
 					$freqs_litlen = match List.set($freqs_litlen, lit, lit_count) {
 						Ok(next) => next
-						Err(_) => return Err(CompressBug)
+						Err(_) => crash "CompressLazy.compress: freqs_litlen index out of bounds"
 					}
 					obs = lit.shr_zf_wrap(5).bitwise_and(0x6).bitwise_or(lit.bitwise_and(1))
 					obs_count = (List.get($new_observations, obs) ?? 0).plus_wrap(1)
 					$new_observations = match List.set($new_observations, obs, obs_count) {
 						Ok(next) => next
-						Err(_) => return Err(CompressBug)
+						Err(_) => crash "CompressLazy.compress: new_observations index out of bounds"
 					}
 					$num_new_observations = $num_new_observations.plus_wrap(1)
 					$litrunlen = $litrunlen.plus_wrap(1)
@@ -1015,15 +1017,15 @@ CompressLazy := [].{
 								pos = (cur_pos.plus_wrap(Matchfinder.node_bias)).to_u16_wrap()
 								$mf = match List.set($mf, HcMatchfinder.hash3_base.plus_wrap($nh3), pos) {
 									Ok(next) => next
-									Err(_) => return Err(CompressBug)
+									Err(_) => crash "CompressLazy.compress: mf index out of bounds"
 								}
 								$mf = match List.set($mf, HcMatchfinder.hash4_base.plus_wrap($nh4), pos) {
 									Ok(next) => next
-									Err(_) => return Err(CompressBug)
+									Err(_) => crash "CompressLazy.compress: mf index out of bounds"
 								}
 								$mf = match List.set($mf, cur_pos, cur_node4) {
 									Ok(next) => next
-									Err(_) => return Err(CompressBug)
+									Err(_) => crash "CompressLazy.compress: mf index out of bounds"
 								}
 								next_hashseq = U32.from_le_bytes(input, $in_next.plus_wrap(1)) ?? 0
 								$nh3 = Matchfinder.lz_hash(next_hashseq.bitwise_and(0xFFFFFF), HcMatchfinder.hash3_order)
@@ -1177,13 +1179,13 @@ CompressLazy := [].{
 								lit_count = (List.get($freqs_litlen, lit) ?? 0).plus_wrap(1)
 								$freqs_litlen = match List.set($freqs_litlen, lit, lit_count) {
 									Ok(next) => next
-									Err(_) => return Err(CompressBug)
+									Err(_) => crash "CompressLazy.compress: freqs_litlen index out of bounds"
 								}
 								obs = lit.shr_zf_wrap(5).bitwise_and(0x6).bitwise_or(lit.bitwise_and(1))
 								obs_count = (List.get($new_observations, obs) ?? 0).plus_wrap(1)
 								$new_observations = match List.set($new_observations, obs, obs_count) {
 									Ok(next) => next
-									Err(_) => return Err(CompressBug)
+									Err(_) => crash "CompressLazy.compress: new_observations index out of bounds"
 								}
 								$num_new_observations = $num_new_observations.plus_wrap(1)
 								$litrunlen = $litrunlen.plus_wrap(1)
@@ -1215,15 +1217,15 @@ CompressLazy := [].{
 									pos = (cur_pos.plus_wrap(Matchfinder.node_bias)).to_u16_wrap()
 									$mf = match List.set($mf, HcMatchfinder.hash3_base.plus_wrap($nh3), pos) {
 										Ok(next) => next
-										Err(_) => return Err(CompressBug)
+										Err(_) => crash "CompressLazy.compress: mf index out of bounds"
 									}
 									$mf = match List.set($mf, HcMatchfinder.hash4_base.plus_wrap($nh4), pos) {
 										Ok(next) => next
-										Err(_) => return Err(CompressBug)
+										Err(_) => crash "CompressLazy.compress: mf index out of bounds"
 									}
 									$mf = match List.set($mf, cur_pos, cur_node4) {
 										Ok(next) => next
-										Err(_) => return Err(CompressBug)
+										Err(_) => crash "CompressLazy.compress: mf index out of bounds"
 									}
 									next_hashseq = U32.from_le_bytes(input, $in_next.plus_wrap(1)) ?? 0
 									$nh3 = Matchfinder.lz_hash(next_hashseq.bitwise_and(0xFFFFFF), HcMatchfinder.hash3_order)
@@ -1377,26 +1379,26 @@ CompressLazy := [].{
 									lit_a_count = (List.get($freqs_litlen, lit_a) ?? 0).plus_wrap(1)
 									$freqs_litlen = match List.set($freqs_litlen, lit_a, lit_a_count) {
 										Ok(next) => next
-										Err(_) => return Err(CompressBug)
+										Err(_) => crash "CompressLazy.compress: freqs_litlen index out of bounds"
 									}
 									obs_a = lit_a.shr_zf_wrap(5).bitwise_and(0x6).bitwise_or(lit_a.bitwise_and(1))
 									obs_a_count = (List.get($new_observations, obs_a) ?? 0).plus_wrap(1)
 									$new_observations = match List.set($new_observations, obs_a, obs_a_count) {
 										Ok(next) => next
-										Err(_) => return Err(CompressBug)
+										Err(_) => crash "CompressLazy.compress: new_observations index out of bounds"
 									}
 									$num_new_observations = $num_new_observations.plus_wrap(1)
 									lit_b = (List.get(input, $in_next.minus_wrap(2)) ?? 0).to_u64()
 									lit_b_count = (List.get($freqs_litlen, lit_b) ?? 0).plus_wrap(1)
 									$freqs_litlen = match List.set($freqs_litlen, lit_b, lit_b_count) {
 										Ok(next) => next
-										Err(_) => return Err(CompressBug)
+										Err(_) => crash "CompressLazy.compress: freqs_litlen index out of bounds"
 									}
 									obs_b = lit_b.shr_zf_wrap(5).bitwise_and(0x6).bitwise_or(lit_b.bitwise_and(1))
 									obs_b_count = (List.get($new_observations, obs_b) ?? 0).plus_wrap(1)
 									$new_observations = match List.set($new_observations, obs_b, obs_b_count) {
 										Ok(next) => next
-										Err(_) => return Err(CompressBug)
+										Err(_) => crash "CompressLazy.compress: new_observations index out of bounds"
 									}
 									$num_new_observations = $num_new_observations.plus_wrap(1)
 									$litrunlen = $litrunlen.plus_wrap(2)
@@ -1419,18 +1421,18 @@ CompressLazy := [].{
 							litlen_sym_count = (List.get($freqs_litlen, litlen_sym) ?? 0).plus_wrap(1)
 							$freqs_litlen = match List.set($freqs_litlen, litlen_sym, litlen_sym_count) {
 								Ok(next) => next
-								Err(_) => return Err(CompressBug)
+								Err(_) => crash "CompressLazy.compress: freqs_litlen index out of bounds"
 							}
 							offset_slot_count = (List.get($freqs_offset, offset_slot) ?? 0).plus_wrap(1)
 							$freqs_offset = match List.set($freqs_offset, offset_slot, offset_slot_count) {
 								Ok(next) => next
-								Err(_) => return Err(CompressBug)
+								Err(_) => crash "CompressLazy.compress: freqs_offset index out of bounds"
 							}
 							obs = if $cur_len >= 9 { 9 } else { 8 }
 							obs_count = (List.get($new_observations, obs) ?? 0).plus_wrap(1)
 							$new_observations = match List.set($new_observations, obs, obs_count) {
 								Ok(next) => next
-								Err(_) => return Err(CompressBug)
+								Err(_) => crash "CompressLazy.compress: new_observations index out of bounds"
 							}
 							$num_new_observations = $num_new_observations.plus_wrap(1)
 							$seqs = List.append($seqs, {
@@ -1449,7 +1451,9 @@ CompressLazy := [].{
 									or List.len($mf) < HcMatchfinder.table_size
 									or $nh3 >= HcMatchfinder.hash3_size
 									or $nh4 >= HcMatchfinder.hash4_size {
-									skipped = HcMatchfinder.skip_bytes($mf, $base, $nh3, $nh4, input, $in_next, in_end, $skip_after)?
+									skipped = match HcMatchfinder.skip_bytes($mf, $base, $nh3, $nh4, input, $in_next, in_end, $skip_after) {
+										Ok(v) => v
+									}
 									$mf = skipped.tab
 									$base = skipped.in_cur_base
 									$nh3 = skipped.next_hash3
@@ -1464,15 +1468,15 @@ CompressLazy := [].{
 										prev_head = List.get($mf, HcMatchfinder.hash4_base.plus_wrap($nh4)) ?? 0
 										$mf = match List.set($mf, HcMatchfinder.hash3_base.plus_wrap($nh3), skip_node) {
 											Ok(next) => next
-											Err(_) => return Err(CompressBug)
+											Err(_) => crash "CompressLazy.compress: mf index out of bounds"
 										}
 										$mf = match List.set($mf, skip_pos.bitwise_and(32767), prev_head) {
 											Ok(next) => next
-											Err(_) => return Err(CompressBug)
+											Err(_) => crash "CompressLazy.compress: mf index out of bounds"
 										}
 										$mf = match List.set($mf, HcMatchfinder.hash4_base.plus_wrap($nh4), skip_node) {
 											Ok(next) => next
-											Err(_) => return Err(CompressBug)
+											Err(_) => crash "CompressLazy.compress: mf index out of bounds"
 										}
 										$skip_at = $skip_at.plus_wrap(1)
 										skip_hashseq = U32.from_le_bytes(input, $skip_at) ?? 0
@@ -1500,7 +1504,7 @@ CompressLazy := [].{
 					if CompressLazy.do_end_block_check($new_observations, $observations, $num_new_observations, $num_observations, $in_next.minus_wrap(in_block_begin)) == 1 {
 						$in_block = 0
 					} else {
-						ms = CompressLazy.merge_observations($new_observations, $observations, $num_new_observations, $num_observations)?
+						ms = CompressLazy.merge_observations($new_observations, $observations, $num_new_observations, $num_observations)
 						$new_observations = ms.new_observations
 						$observations = ms.observations
 						$num_new_observations = ms.num_new_observations
@@ -1520,7 +1524,7 @@ CompressLazy := [].{
 			$freqs_litlen = match List.set($freqs_litlen, DeflateTables.end_of_block,
 				(List.get($freqs_litlen, DeflateTables.end_of_block) ?? 0) + 1) {
 				Ok(next) => next
-				Err(_) => return Err(CompressBug)
+				Err(_) => crash "CompressLazy.compress: freqs_litlen index out of bounds"
 			}
 			litlen_code = HuffmanEncode.make_code(
 				DeflateTables.num_litlen_syms,
@@ -1528,14 +1532,14 @@ CompressLazy := [].{
 				$freqs_litlen,
 				List.repeat(0.U8, DeflateTables.num_litlen_syms),
 				List.repeat(0.U32, DeflateTables.num_litlen_syms),
-			)?
+			)
 			offset_code = HuffmanEncode.make_code(
 				DeflateTables.num_offset_syms,
 				BlockOut.max_offset_codeword_len,
 				$freqs_offset,
 				List.repeat(0.U8, DeflateTables.num_offset_syms),
 				List.repeat(0.U32, DeflateTables.num_offset_syms),
-			)?
+			)
 
 			is_final = if $in_next == in_end { 1 } else { 0 }
 			flushed = BlockOut.flush_block(
@@ -1559,7 +1563,7 @@ CompressLazy := [].{
 				[],
 				0,
 				is_final,
-			)?
+			)
 			$out = flushed.out
 			$bitbuf = flushed.bitbuf
 			$bitcount = flushed.bitcount
@@ -1580,6 +1584,6 @@ CompressLazy := [].{
 			$out = List.append($out, $bitbuf.to_u8_wrap())
 		} else {
 		}
-		Ok($out)
+		$out
 	}
 }

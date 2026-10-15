@@ -61,7 +61,7 @@ Matchfinder := [].{
 	lz_extend : List(U8), U64, U64, U64, U64 -> U64
 	lz_extend = |input, str_at, match_at, start_len, max_len| {
 		if str_at + max_len > List.len(input) or match_at >= str_at {
-			crash "lz_extend: match window outside the input"
+			crash "Matchfinder.lz_extend: match window outside the input"
 		} else {
 		}
 		var $len = start_len
