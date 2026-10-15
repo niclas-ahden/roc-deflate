@@ -525,7 +525,16 @@ CompressLazy := [].{
 						$num_new_observations = $num_new_observations.plus_wrap(1)
 						$litrunlen = $litrunlen.plus_wrap(1)
 						$in_next = $in_next.plus_wrap(1)
-						if $in_next >= scan_end or $num_new_observations >= CompressLazy.observations_per_block_check {
+						# The scan also stops where the block-split check below
+						# would run, under exactly its conditions (libdeflate's
+						# `ready_to_check_block`). Stopping on the observation
+						# count alone would hand every literal to the outer
+						# loop near the block start and the input end, where
+						# the check never runs.
+						if $in_next >= scan_end
+							or ($num_new_observations >= CompressLazy.observations_per_block_check
+								and $in_next.minus_wrap(in_block_begin) >= CompressLazy.min_block_length
+								and in_end.minus_wrap($in_next) >= CompressLazy.min_block_length) {
 							$scanning = False
 						} else {
 						}
