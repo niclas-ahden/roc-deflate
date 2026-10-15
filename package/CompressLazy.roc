@@ -373,9 +373,11 @@ CompressLazy := [].{
 						# before they are needed, so start bringing them into the cache.
 						$mf = List.prefetched($mf, HcMatchfinder.hash3_base.plus_wrap($nh3))
 						$mf = List.prefetched($mf, HcMatchfinder.hash4_base.plus_wrap($nh4))
-						# The hash-chain search, written out here rather than called: it is
-						# the greedy loop's whole body, and as a call it returned its match
-						# through memory and spilled the loop's state around itself.
+						# The hash-chain search, one of the four copies of libdeflate's
+						# `hc_matchfinder_longest_match` (see HcMatchfinder), written out here
+						# rather than called: it is the greedy loop's whole body, and as a call
+						# it returned its match through memory and spilled the loop's state
+						# around itself.
 						# The chain region is one window long, so every masked chain index is
 						# in range, and a length guard here would let each chain read's bounds
 						# test fold away. It is deliberately absent: the test costs nothing on
@@ -832,8 +834,9 @@ CompressLazy := [].{
 					# before they are needed, so start bringing them into the cache.
 					$mf = List.prefetched($mf, HcMatchfinder.hash3_base.plus_wrap($nh3))
 					$mf = List.prefetched($mf, HcMatchfinder.hash4_base.plus_wrap($nh4))
-					# The hash-chain search, written out here rather than called, so the
-					# loop's state stays in registers across it.
+					# The hash-chain search, one of the four copies of libdeflate's
+					# `hc_matchfinder_longest_match` (see HcMatchfinder), written out here
+					# rather than called so the loop's state stays in registers across it.
 					# The chain region is one window long, so every masked chain index is
 					# in range, and a length guard here would let each chain read's bounds
 					# test fold away. It is deliberately absent: the test costs nothing on
@@ -1043,8 +1046,9 @@ CompressLazy := [].{
 								# before they are needed, so start bringing them into the cache.
 								$mf = List.prefetched($mf, HcMatchfinder.hash3_base.plus_wrap($nh3))
 								$mf = List.prefetched($mf, HcMatchfinder.hash4_base.plus_wrap($nh4))
-								# The hash-chain search, written out here rather than called, so the
-								# loop's state stays in registers across it.
+								# The hash-chain search, one of the four copies of libdeflate's
+								# `hc_matchfinder_longest_match` (see HcMatchfinder), written out here
+								# rather than called so the loop's state stays in registers across it.
 								# The chain region is one window long, so every masked chain index is
 								# in range, and a length guard here would let each chain read's bounds
 								# test fold away. It is deliberately absent: the test costs nothing on
@@ -1243,8 +1247,9 @@ CompressLazy := [].{
 									# before they are needed, so start bringing them into the cache.
 									$mf = List.prefetched($mf, HcMatchfinder.hash3_base.plus_wrap($nh3))
 									$mf = List.prefetched($mf, HcMatchfinder.hash4_base.plus_wrap($nh4))
-									# The hash-chain search, written out here rather than called, so the
-									# loop's state stays in registers across it.
+									# The hash-chain search, one of the four copies of libdeflate's
+									# `hc_matchfinder_longest_match` (see HcMatchfinder), written out here
+									# rather than called so the loop's state stays in registers across it.
 									# The chain region is one window long, so every masked chain index is
 									# in range, and a length guard here would let each chain read's bounds
 									# test fold away. It is deliberately absent: the test costs nothing on
