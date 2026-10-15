@@ -66,7 +66,7 @@ Because the output is byte-identical to libdeflate's, the compressed size at a g
 
 The gap narrows as the level rises, since the deeper searches amortize the per-position overhead. There is plenty of room left. See this as a starting point 👍
 
-Reproduce it on your machine with `./benchmark/compress.sh [level]`, which downloads and verifies the corpus on first run, then runs both engines under mimalloc, compressing into a caller-allocated buffer sized by libdeflate's own bound, and compares the two streams byte for byte. `./benchmark/decompress.sh` does the same for the decompressor.
+Reproduce it on your machine with `nix develop -c ./benchmark/compress.roc [level]`, which downloads and verifies the corpus on first run, then runs both engines under mimalloc, compressing into a caller-allocated buffer sized by libdeflate's own bound, and compares the two streams byte for byte. `nix develop -c ./benchmark/decompress.roc` does the same for the decompressor. The dev shell provides the libdeflate source, mimalloc, and the C compiler, so no sibling libdeflate checkout is needed. Set `CORPUS_FILES=xml` (or any space-separated list of Silesia names) for a quicker run.
 
 ## Testing
 
