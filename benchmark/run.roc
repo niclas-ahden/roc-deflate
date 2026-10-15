@@ -12,14 +12,14 @@
 ##
 ##     nix develop -c ./benchmark/run.roc
 app [main!] {
-	pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.23.0-rc1/3hT3SoHZ6qbEsa9qVFLUW3547U5LeoNd1KbpqLpz4r1i.tar.zst",
+	pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.26.0-rc2/Gj3zVDr3qrQa6aTh7Z1zgUfe9NeBE6R76T5ho3xrc8af.tar.zst",
 }
 
 import pf.Stdout
 import pf.Path
 import pf.Cmd
-import pf.IOErr exposing [IOErr]
-import pf.OsStr exposing [OsStr]
+import pf.IOErr
+import pf.OsStr
 
 corpus_dir = "benchmark/.corpus"
 mirror = "https://raw.githubusercontent.com/MiloszKrajewski/SilesiaCorpus/master"
@@ -54,7 +54,7 @@ main! = |_| {
 }
 
 # Ensure every corpus file is present, fetching the missing ones.
-ensure_all! : List({ name : Str, sha : Str }) => Try({}, [Exit(I32), StdoutErr(IOErr), ..])
+ensure_all! : List({ name : Str, sha : Str }) => Try({}, [Exit(I32), StdoutErr(IOErr)])
 ensure_all! = |remaining|
 	match remaining {
 		[] => Ok({})
@@ -65,7 +65,7 @@ ensure_all! = |remaining|
 	}
 
 # Download, verify, and extract one file unless it is already extracted.
-ensure_one! : { name : Str, sha : Str } => Try({}, [Exit(I32), StdoutErr(IOErr), ..])
+ensure_one! : { name : Str, sha : Str } => Try({}, [Exit(I32), StdoutErr(IOErr)])
 ensure_one! = |{ name, sha }| {
 	extracted = Path.from_os_str(OsStr.from_str("${corpus_dir}/${name}"))
 	if Path.is_file!(extracted) ? |_| Exit(1) {
@@ -74,8 +74,8 @@ ensure_one! = |{ name, sha }| {
 		zip = "${corpus_dir}/${name}.zip"
 		Stdout.line!("  ${name}: downloading")?
 		run!("curl", ["-fsSL", "--retry", "3", "-o", zip, "${mirror}/${name}.zip"])?
-		out = Cmd.new(OsStr.from_str("sha256sum")).args([OsStr.from_str(zip)]).exec_output!() ? |_| Exit(1)
-		if out.stdout_utf8.contains(sha) {
+		out = Cmd.new(OsStr.from_str("sha256sum")).args([OsStr.from_str(zip)]).capture!() ? |_| Exit(1)
+		if out.contains(sha) {
 			run!("unzip", ["-oq", zip, "-d", corpus_dir])?
 			Stdout.line!("  ${name}: verified and extracted")
 		} else {
@@ -86,8 +86,8 @@ ensure_one! = |{ name, sha }| {
 }
 
 # Run a command with inherited stdio, failing the script on a nonzero exit.
-run! : Str, List(Str) => Try({}, [Exit(I32), ..])
+run! : Str, List(Str) => Try({}, [Exit(I32)])
 run! = |program, arguments| {
-	Cmd.exec!(OsStr.from_str(program), arguments.map(OsStr.from_str)) ? |_| Exit(1)
+	Cmd.new(OsStr.from_str(program)).args(arguments.map(OsStr.from_str)).exec!() ? |_| Exit(1)
 	Ok({})
 }

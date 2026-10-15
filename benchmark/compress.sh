@@ -74,9 +74,6 @@ if [ "$needs_build" -eq 1 ]; then
 	mv "$here/ctime" "$build/ctime"
 fi
 
-# Level and repetition count reach the Roc harness as bytes.
-printf "$(printf '\\%03o' "$level")$(printf '\\%03o' "$reps")" > "$work/params.bin"
-
 case "$(uname)" in
 Darwin)
 	mi="$(brew --prefix mimalloc 2>/dev/null)/lib/libmimalloc.dylib"
@@ -107,7 +104,7 @@ for f in "${files[@]}"; do
 	r=0
 	while [ "$r" -lt "$rounds" ]; do
 		c_line="$("$build/cbench" "$corpus/$f" "$level" "$reps" "$work/c_$f.deflate")"
-		roc_line="$("$build/ctime" "$corpus/$f" "$work/params.bin" "$work/roc_$f.deflate")"
+		roc_line="$("$build/ctime" "$corpus/$f" "$level" "$reps" "$work/roc_$f.deflate")"
 		c_mbps="$(echo "$c_line" | cut -f3)"
 		roc_mbps="$(echo "$roc_line" | cut -f3)"
 		c_size="$(echo "$c_line" | cut -f4)"

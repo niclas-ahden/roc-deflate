@@ -24,15 +24,15 @@
 ##     roc build --opt=speed benchmark/benchmark.roc --output=benchmark/benchmark
 ##     ./benchmark/benchmark benchmark/.corpus > roc.tsv
 app [main!] {
-	pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.23.0-rc1/3hT3SoHZ6qbEsa9qVFLUW3547U5LeoNd1KbpqLpz4r1i.tar.zst",
+	pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.26.0-rc2/Gj3zVDr3qrQa6aTh7Z1zgUfe9NeBE6R76T5ho3xrc8af.tar.zst",
 	deflate: "../package/main.roc",
 }
 
 import pf.Stdout
 import pf.Path
-import pf.Utc
-import pf.IOErr exposing [IOErr]
-import pf.OsStr exposing [OsStr]
+import pf.Monotonic
+import pf.IOErr
+import pf.OsStr
 import deflate.Deflate
 
 # The 12 Silesia files, in the corpus's canonical order.
@@ -50,7 +50,7 @@ max_iters = 200
 Timing : { best_ns : U128, iters : U64 }
 
 main! = |args| {
-	dir_os = match args.get(1) {
+	dir_os = match args.get(0) {
 		Ok(raw) => OsStr.from_raw(raw)
 		Err(_) => OsStr.from_str("benchmark/.corpus")
 	}
@@ -60,7 +60,7 @@ main! = |args| {
 	run_all!(dir, names)
 }
 
-run_all! : Path.Path, List(Str) => Try({}, [Exit(I32), StdoutErr(IOErr), ..])
+run_all! : Path.Path, List(Str) => Try({}, [Exit(I32), StdoutErr(IOErr)])
 run_all! = |dir, remaining|
 	match remaining {
 		[] => Ok({})
@@ -70,7 +70,7 @@ run_all! = |dir, remaining|
 		}
 	}
 
-run_one! : Path.Path, Str => Try({}, [Exit(I32), StdoutErr(IOErr), ..])
+run_one! : Path.Path, Str => Try({}, [Exit(I32), StdoutErr(IOErr)])
 run_one! = |dir, name| {
 	bytes = Path.read_bytes!(dir.join(name)) ? |_| Exit(1)
 	report!(name, "fastest", bytes, 1)?
@@ -79,7 +79,7 @@ run_one! = |dir, name| {
 }
 
 ## Time both directions at one level and print the two rows.
-report! : Str, Str, List(U8), U64 => Try({}, [Exit(I32), StdoutErr(IOErr), ..])
+report! : Str, Str, List(U8), U64 => Try({}, [Exit(I32), StdoutErr(IOErr)])
 report! = |name, setting, bytes, level| {
 	orig = bytes.len()
 	compressed = Deflate.compress(bytes, level) ? |_| Exit(1)
@@ -96,7 +96,7 @@ report! = |name, setting, bytes, level| {
 	row!(name, "decomp", setting, orig, comp, dt)
 }
 
-row! : Str, Str, Str, U64, U64, Timing => Try({}, [StdoutErr(IOErr), ..])
+row! : Str, Str, Str, U64, U64, Timing => Try({}, [StdoutErr(IOErr)])
 row! = |name, op, setting, orig, comp, t|
 	Stdout.line!("${name}\troc-deflate\t${op}\t${setting}\t${orig.to_str()}\t${comp.to_str()}\t${t.best_ns.to_str()}\t${t.iters.to_str()}")
 
@@ -121,12 +121,12 @@ compress_loop! = |bytes, level, sink, best, elapsed, iters|
 	} else if iters >= max_iters or elapsed >= max_ns or (iters >= min_iters and elapsed >= min_ns) {
 		{ best_ns: best, iters: iters }
 	} else {
-		start = Utc.now!()
+		start = Monotonic.now!()
 		out = Deflate.compress(bytes, level)
 		# Read the length before stopping the clock so the work is forced.
 		produced = compressed_len(out)
-		finish = Utc.now!()
-		took = Utc.delta_as_nanos(finish, start)
+		finish = Monotonic.now!()
+		took = finish.since(start).to_nanos().to_u128()
 		next_best = if iters == 0 or took < best { took } else { best }
 		compress_loop!(bytes, level, sink + produced, next_best, elapsed + took, iters + 1)
 	}
@@ -161,11 +161,11 @@ decompress_loop! = |compressed, sink, best, elapsed, iters|
 	} else if iters >= max_iters or elapsed >= max_ns or (iters >= min_iters and elapsed >= min_ns) {
 		{ best_ns: best, iters: iters }
 	} else {
-		start = Utc.now!()
+		start = Monotonic.now!()
 		out = Deflate.decompress(compressed)
 		produced = decompressed_len(out)
-		finish = Utc.now!()
-		took = Utc.delta_as_nanos(finish, start)
+		finish = Monotonic.now!()
+		took = finish.since(start).to_nanos().to_u128()
 		next_best = if iters == 0 or took < best { took } else { best }
 		decompress_loop!(compressed, sink + produced, next_best, elapsed + took, iters + 1)
 	}
