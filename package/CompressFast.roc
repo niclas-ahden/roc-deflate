@@ -59,7 +59,10 @@ CompressFast := [].{
 			var $freqs_litlen = List.repeat(0.U32, DeflateTables.first_len_sym + 256)
 			var $freqs_offset = List.repeat(0.U32, 256 + 14)
 			$seqs = List.clear($seqs)
-			var $litrunlen = 0.U32
+			# The literal run is measured from where it started rather than
+			# counted: a match reads it off the cursor, so a literal updates
+			# nothing but the cursor.
+			var $run_start = $in_next
 
 			# Wrapping arithmetic on the per-position path: the cursor never passes
 			# the input end, a match is at least three bytes, and every run length
@@ -81,7 +84,6 @@ CompressFast := [].{
 								Ok(next) => next
 								Err(_) => crash "CompressFast.compress: freqs_litlen index out of bounds"
 							}
-							$litrunlen = $litrunlen.plus_wrap(1)
 							$in_next = $in_next.plus_wrap(1)
 							$left = $left.minus_wrap(1)
 						}
@@ -114,17 +116,17 @@ CompressFast := [].{
 							Err(_) => crash "CompressFast.compress: freqs_offset index out of bounds"
 						}
 						$seqs = List.append($seqs, {
-							litrunlen_and_length: $litrunlen.bitwise_or(found.length.to_u32_wrap().shl_wrap(BlockOut.seq_length_shift)),
+							litrunlen_and_length: $in_next.minus_wrap($run_start).to_u32_wrap().bitwise_or(found.length.to_u32_wrap().shl_wrap(BlockOut.seq_length_shift)),
 							offset: found.offset.to_u16_wrap(),
 							offset_slot: offset_slot.to_u16_wrap(),
 						})
-						$litrunlen = 0
 
 						skipped = HtMatchfinder.skip_bytes($tab, $base, $nh, input, $in_next.plus_wrap(1), in_end, found.length.minus_wrap(1))
 						$tab = skipped.hash_tab
 						$base = skipped.in_cur_base
 						$nh = skipped.next_hash
 						$in_next = $in_next.plus_wrap(found.length)
+						$run_start = $in_next
 					} else {
 						lit = (List.get(input, $in_next) ?? 0).to_u64()
 						lit_count = (List.get($freqs_litlen, lit) ?? 0).plus_wrap(1)
@@ -132,7 +134,6 @@ CompressFast := [].{
 							Ok(next) => next
 							Err(_) => crash "CompressFast.compress: freqs_litlen index out of bounds"
 						}
-						$litrunlen = $litrunlen.plus_wrap(1)
 						$in_next = $in_next.plus_wrap(1)
 					}
 
@@ -145,7 +146,7 @@ CompressFast := [].{
 			}
 
 			$seqs = List.append($seqs, {
-				litrunlen_and_length: $litrunlen,
+				litrunlen_and_length: $in_next.minus_wrap($run_start).to_u32_wrap(),
 				offset: 0.U16,
 				offset_slot: 0.U16,
 			})

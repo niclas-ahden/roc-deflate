@@ -146,12 +146,13 @@ HtMatchfinder := [].{
 	skip_bytes : List(U16), U64, U64, List(U8), U64, U64, U64 -> State
 	skip_bytes = |tab_0, base_0, hash_0, input, in_next0, in_end, count| {
 		# The run ends at `end`, and every hash read the loop makes lies within
-		# `required_nbytes` of it. Bounding the run against the input's length
-		# here, and the bucket table's size once after any slide, lets the
-		# range prover discharge the bounds test on every read and bucket
-		# access in the loop, so each byte pays only for the work itself.
-		end = in_next0.plus_wrap(count)
-		if end.plus_wrap(HtMatchfinder.required_nbytes) > in_end {
+		# `required_nbytes` of it. These two sums are checked rather than
+		# wrapping so that the bound they establish is a fact the range prover
+		# can carry into the loop: with it, and the bucket table's size once
+		# after any slide, every read and bucket access in the loop is proven
+		# in bounds, so each byte pays only for the work itself.
+		end = in_next0 + count
+		if end + HtMatchfinder.required_nbytes > in_end {
 			{ hash_tab: tab_0, in_cur_base: base_0, next_hash: hash_0 }
 		} else if in_end > List.len(input) {
 			crash "HtMatchfinder.skip_bytes: input end past the input"
@@ -175,16 +176,11 @@ HtMatchfinder := [].{
 			# Wrapping arithmetic: the run was bounded against the input above and
 			# a bucket index is a masked hash doubled, so nothing here can overflow
 			# and a checked add would only cost a branch per byte.
-			# The run ends at least `required_nbytes` before the input does.
-			# Taking the smaller of the two as the limit states that where the
-			# hash read below can use it.
-			last_start = in_end - HtMatchfinder.required_nbytes
-			limit = if end < last_start { end } else { last_start }
 			var $hash = hash_0
 			# The node written for each position is the biased position, so the
 			# loop carries it directly rather than biasing on every store.
 			var $node = $cur_pos.plus_wrap(Matchfinder.node_bias.to_i64_wrap())
-			while $in_next < limit {
+			while $in_next < end {
 				slot0 = $hash.bitwise_and(0x7FFF).times_wrap(2)
 				first = List.get($tab, slot0) ?? 0
 				tab1 = match List.set($tab, slot0.plus_wrap(1), first) {
