@@ -76,7 +76,7 @@ HtMatchfinder := [].{
 		next_hash = Matchfinder.lz_hash(U32.from_le_bytes(input, in_next.plus_wrap(1)) ?? 0, HtMatchfinder.hash_order)
 		seq = U32.from_le_bytes(input, in_next) ?? 0
 
-		slot0 = hash.times_wrap(2)
+		slot0 = hash.bitwise_and(0x7FFF).times_wrap(2)
 		if slot0.plus_wrap(1) >= List.len($tab) {
 			crash "HtMatchfinder.longest_match: hash bucket outside the table"
 		} else {
@@ -185,7 +185,7 @@ HtMatchfinder := [].{
 			# loop carries it directly rather than biasing on every store.
 			var $node = $cur_pos.plus_wrap(Matchfinder.node_bias.to_i64_wrap())
 			while $in_next < limit {
-				slot0 = $hash.times_wrap(2)
+				slot0 = $hash.bitwise_and(0x7FFF).times_wrap(2)
 				first = List.get($tab, slot0) ?? 0
 				tab1 = match List.set($tab, slot0.plus_wrap(1), first) {
 					Ok(next) => next
