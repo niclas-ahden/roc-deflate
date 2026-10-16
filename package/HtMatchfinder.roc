@@ -181,6 +181,9 @@ HtMatchfinder := [].{
 			last_start = in_end - HtMatchfinder.required_nbytes
 			limit = if end < last_start { end } else { last_start }
 			var $hash = hash_0
+			# The node written for each position is the biased position, so the
+			# loop carries it directly rather than biasing on every store.
+			var $node = $cur_pos.plus_wrap(Matchfinder.node_bias.to_i64_wrap())
 			while $in_next < limit {
 				slot0 = $hash.bitwise_and(0x7FFF).times_wrap(2)
 				first = List.get($tab, slot0) ?? 0
@@ -188,14 +191,14 @@ HtMatchfinder := [].{
 					Ok(next) => next
 					Err(_) => crash "HtMatchfinder.skip_bytes: tab index out of bounds"
 				}
-				$tab = match List.set(tab1, slot0, $cur_pos.plus_wrap(Matchfinder.node_bias.to_i64_wrap()).to_u16_wrap()) {
+				$tab = match List.set(tab1, slot0, $node.to_u16_wrap()) {
 					Ok(next) => next
 					Err(_) => crash "HtMatchfinder.skip_bytes: tab1 index out of bounds"
 				}
 
 				$in_next = $in_next.plus_wrap(1)
 				$hash = Matchfinder.lz_hash(U32.from_le_bytes(input, $in_next) ?? 0, HtMatchfinder.hash_order)
-				$cur_pos = $cur_pos.plus_wrap(1)
+				$node = $node.plus_wrap(1)
 			}
 			{ hash_tab: $tab, in_cur_base: $base, next_hash: $hash }
 		}

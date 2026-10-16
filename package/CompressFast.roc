@@ -53,8 +53,11 @@ CompressFast := [].{
 				in_end,
 				CompressFast.fast_soft_max_block_length,
 			)
-			var $freqs_litlen = List.repeat(0.U32, DeflateTables.num_litlen_syms)
-			var $freqs_offset = List.repeat(0.U32, DeflateTables.num_offset_syms)
+			# Each list covers every index its slot lookup can produce, not just
+			# the alphabet: the length slot is a byte added to 257 and the offset
+			# slot is a byte plus 14, so the counts below need no bounds tests.
+			var $freqs_litlen = List.repeat(0.U32, DeflateTables.first_len_sym + 256)
+			var $freqs_offset = List.repeat(0.U32, 256 + 14)
 			$seqs = List.clear($seqs)
 			var $litrunlen = 0.U32
 
