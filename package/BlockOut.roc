@@ -332,6 +332,18 @@ BlockOut := [].{
 		$packed
 	}
 
+	## A packed table padded to `n` entries: a lookup indexed by a field whose
+	## width the table's own size does not cover then needs no bounds test.
+	pad_packed : List(U64), U64 -> List(U64)
+	pad_packed = |packed, n| {
+		len = List.len(packed)
+		if len < n {
+			List.concat(packed, List.repeat(0.U64, n - len))
+		} else {
+			packed
+		}
+	}
+
 	## Write a block's sequences: each literal run, then its match. This is its
 	## own function so the per-symbol loop keeps the bit buffer, the cursor, and
 	## the tables in registers.
@@ -346,6 +358,14 @@ BlockOut := [].{
 		# literal's lookup fold away instead of running per symbol.
 		if List.len(packed_litlen) < DeflateTables.num_literals {
 			crash "BlockOut.write_sequences: packed literal table too short"
+		} else {
+		}
+		# A match's length field is nine bits and its offset slot is masked
+		# to five below, so tables of those sizes make both lookups in bounds
+		# by construction. The flush below writes `bitcount / 8` bytes with the
+		# count masked to its three bits, which the append's limit covers.
+		if List.len(packed_full) < 512 or List.len(packed_offset) < 32 {
+			crash "BlockOut.write_sequences: packed match tables too short"
 		} else {
 		}
 
@@ -385,7 +405,7 @@ BlockOut := [].{
 				$bitbuf = $bitbuf.bitwise_or(packed3.bitwise_and(0xFFFF_FFFF).shl_wrap($bitcount.to_u8_wrap()))
 				$bitcount = $bitcount.plus_wrap(packed3.shr_zf_wrap(32))
 				$in_next = $in_next.plus_wrap(4)
-				n = $bitcount.shr_zf_wrap(3)
+				n = $bitcount.shr_zf_wrap(3).bitwise_and(7)
 				$out = match $bitbuf.append_le_bytes_to($out, n.to_u8_wrap()) {
 					Ok(next) => next
 					Err(_) => crash "BlockOut.write_sequences: appended more than 8 bytes"
@@ -416,7 +436,7 @@ BlockOut := [].{
 					}
 				} else {
 				}
-				n = $bitcount.shr_zf_wrap(3)
+				n = $bitcount.shr_zf_wrap(3).bitwise_and(7)
 				$out = match $bitbuf.append_le_bytes_to($out, n.to_u8_wrap()) {
 					Ok(next) => next
 					Err(_) => crash "BlockOut.write_sequences: appended more than 8 bytes"
@@ -433,7 +453,7 @@ BlockOut := [].{
 				# codeword with its extra bits, the offset codeword, and the
 				# extra offset bits come to at most 47 bits.
 				offset = seq.offset.to_u64()
-				offset_slot = seq.offset_slot.to_u64()
+				offset_slot = seq.offset_slot.to_u64().bitwise_and(31)
 				packed_len = List.get(packed_full, length) ?? 0
 				$bitbuf = $bitbuf.bitwise_or(packed_len.bitwise_and(0xFFFF_FFFF).shl_wrap($bitcount.to_u8_wrap()))
 				$bitcount = $bitcount.plus_wrap(packed_len.shr_zf_wrap(32))
@@ -442,7 +462,7 @@ BlockOut := [].{
 				$bitcount = $bitcount.plus_wrap(packed_off.shr_zf_wrap(16).bitwise_and(0xFF))
 				$bitbuf = $bitbuf.bitwise_or(offset.minus_wrap(packed_off.shr_zf_wrap(32)).shl_wrap($bitcount.to_u8_wrap()))
 				$bitcount = $bitcount.plus_wrap(packed_off.shr_zf_wrap(24).bitwise_and(0xFF))
-				n = $bitcount.shr_zf_wrap(3)
+				n = $bitcount.shr_zf_wrap(3).bitwise_and(7)
 				$out = match $bitbuf.append_le_bytes_to($out, n.to_u8_wrap()) {
 					Ok(next) => next
 					Err(_) => crash "BlockOut.write_sequences: appended more than 8 bytes"
@@ -718,8 +738,8 @@ BlockOut := [].{
 			if use_items == 0 {
 				# Only the sequence writer reads the packed tables.
 				packed_litlen = BlockOut.pack_codes(w_litlen_codewords, w_litlen_lens)
-				packed_full = BlockOut.pack_codes(full_codewords, full_lens)
-				packed_offset = BlockOut.pack_offsets(w_offset_codewords, w_offset_lens)
+				packed_full = BlockOut.pad_packed(BlockOut.pack_codes(full_codewords, full_lens), 512)
+				packed_offset = BlockOut.pad_packed(BlockOut.pack_offsets(w_offset_codewords, w_offset_lens), 32)
 				written = BlockOut.write_sequences($out, $bitbuf, $bitcount, input, $in_next, seqs, packed_litlen, packed_full, packed_offset)
 				$out = written.out
 				$bitbuf = written.bitbuf
