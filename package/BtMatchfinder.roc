@@ -70,12 +70,7 @@ BtMatchfinder := [].{
 	## The tables travel as separate arguments rather than inside one record,
 	## since a record holding a list is copied when it crosses a call boundary
 	## and these tables are far larger than the search itself.
-	##
-	## The result comes back in a `Try` that cannot fail. The compiler at
-	## roc-lang/roc 66c32df makes the near-optimal levels about a fifth slower
-	## when this and [BtMatchfinder.skip_byte] return the bare record instead,
-	## though the work is the same.
-	get_matches : List(U16), List(U16), List(U16), U64, U64, List(U8), U64, U64, U64, U64, U64, List(U32), List(U32), U64 -> Try(Advanced, [])
+	get_matches : List(U16), List(U16), List(U16), U64, U64, List(U8), U64, U64, U64, U64, U64, List(U32), List(U32), U64 -> Advanced
 	get_matches = |tab3_0, tab4_0, child_0, nh3, nh4, input, in_base, cur_pos, max_len, nice_len, max_search_depth, cache_len_0, cache_off_0, cache_ptr_0| {
 		# Wrapping index arithmetic throughout the search and the skip: every
 		# position touched lies in the window the caller bounded against the
@@ -162,7 +157,7 @@ BtMatchfinder := [].{
 				Ok(next) => next
 				Err(_) => crash "BtMatchfinder.get_matches: child index out of bounds"
 			}
-			return Ok({
+			return {
 				hash3: $tab3,
 				hash4: $tab4,
 				child: $child,
@@ -171,7 +166,7 @@ BtMatchfinder := [].{
 				cache_len: $cache_len,
 				cache_off: $cache_off,
 				cache_ptr: $cache_ptr,
-			})
+			}
 		} else {
 		}
 
@@ -268,7 +263,7 @@ BtMatchfinder := [].{
 			}
 		}
 
-		Ok({
+		{
 			hash3: $tab3,
 			hash4: $tab4,
 			child: $child,
@@ -277,7 +272,7 @@ BtMatchfinder := [].{
 			cache_len: $cache_len,
 			cache_off: $cache_off,
 			cache_ptr: $cache_ptr,
-		})
+		}
 	}
 
 	## Advance one byte without reporting anything, which is how the positions
@@ -286,9 +281,7 @@ BtMatchfinder := [].{
 	## The tree still has to be walked and rebuilt, so this is nearly the same
 	## work as a search. The walk simply stops at `nice_len` rather than at the
 	## caller's maximum length.
-	##
-	## The `Try` cannot fail, for the reason [BtMatchfinder.get_matches] gives.
-	skip_byte : List(U16), List(U16), List(U16), U64, U64, List(U8), U64, U64, U64, U64 -> Try(State, [])
+	skip_byte : List(U16), List(U16), List(U16), U64, U64, List(U8), U64, U64, U64, U64 -> State
 	skip_byte = |tab3_0, tab4_0, child_0, nh3, nh4, input, in_base, cur_pos, nice_len, max_search_depth| {
 		var $tab3 = tab3_0
 		var $tab4 = tab4_0
@@ -331,13 +324,13 @@ BtMatchfinder := [].{
 				Ok(next) => next
 				Err(_) => crash "BtMatchfinder.skip_byte: child index out of bounds"
 			}
-			return Ok({
+			return {
 				hash3: $tab3,
 				hash4: $tab4,
 				child: $child,
 				next_hash3: out_hash3,
 				next_hash4: out_hash4,
-			})
+			}
 		} else {
 		}
 
@@ -416,12 +409,12 @@ BtMatchfinder := [].{
 			}
 		}
 
-		Ok({
+		{
 			hash3: $tab3,
 			hash4: $tab4,
 			child: $child,
 			next_hash3: out_hash3,
 			next_hash4: out_hash4,
-		})
+		}
 	}
 }

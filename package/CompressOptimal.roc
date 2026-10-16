@@ -793,7 +793,7 @@ CompressOptimal := [].{
 				} else {
 				}
 				if $max_len >= BtMatchfinder.required_nbytes {
-					adv = match BtMatchfinder.get_matches(
+					adv = BtMatchfinder.get_matches(
 						$tab3,
 						$tab4,
 						$child,
@@ -808,9 +808,7 @@ CompressOptimal := [].{
 						$cache_len,
 						$cache_off,
 						$cache_ptr,
-					) {
-						Ok(v) => v
-					}
+					)
 					$tab3 = adv.hash3
 					$tab4 = adv.hash4
 					$child = adv.child
@@ -893,7 +891,7 @@ CompressOptimal := [].{
 						} else {
 						}
 						if $max_len >= BtMatchfinder.required_nbytes {
-							sk = match BtMatchfinder.skip_byte(
+							sk = BtMatchfinder.skip_byte(
 								$tab3,
 								$tab4,
 								$child,
@@ -904,9 +902,7 @@ CompressOptimal := [].{
 								$in_next.minus_wrap($in_cur_base),
 								$nice_len,
 								params.max_search_depth,
-							) {
-								Ok(v) => v
-							}
+							)
 							$tab3 = sk.hash3
 							$tab4 = sk.hash4
 							$child = sk.child
