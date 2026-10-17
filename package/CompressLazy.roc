@@ -620,15 +620,17 @@ CompressLazy := [].{
 						# read below can use it.
 						skip_limit = skip_end.min(in_end - 5)
 						var $skip_at = $in_next.plus_wrap(1)
+						# The node is carried already biased. The bias is one window, so masking
+						# the biased node gives the position's chain slot as well.
+						var $skip_node = $skip_at.minus_wrap($base).plus_wrap(Matchfinder.node_bias)
 						while $skip_at < skip_limit {
-							skip_pos = $skip_at.minus_wrap($base)
-							skip_node = skip_pos.plus_wrap(Matchfinder.node_bias).to_u16_wrap()
+							skip_node = $skip_node.to_u16_wrap()
 							prev_head = List.get($mf, HcMatchfinder.hash4_base.plus_wrap($nh4)) ?? 0
 							$mf = match List.set($mf, HcMatchfinder.hash3_base.plus_wrap($nh3), skip_node) {
 								Ok(next) => next
 								Err(_) => crash "CompressLazy.compress_greedy: mf index out of bounds"
 							}
-							$mf = match List.set($mf, skip_pos.bitwise_and(32767), prev_head) {
+							$mf = match List.set($mf, $skip_node.bitwise_and(32767), prev_head) {
 								Ok(next) => next
 								Err(_) => crash "CompressLazy.compress_greedy: mf index out of bounds"
 							}
@@ -637,6 +639,7 @@ CompressLazy := [].{
 								Err(_) => crash "CompressLazy.compress_greedy: mf index out of bounds"
 							}
 							$skip_at = $skip_at.plus_wrap(1)
+							$skip_node = $skip_node.plus_wrap(1)
 							skip_hashseq = U32.from_le_bytes(input, $skip_at) ?? 0
 							$nh3 = Matchfinder.lz_hash(skip_hashseq.bitwise_and(0xFFFFFF), HcMatchfinder.hash3_order)
 							$nh4 = Matchfinder.lz_hash(skip_hashseq, HcMatchfinder.hash4_order)
@@ -1499,15 +1502,17 @@ CompressLazy := [].{
 									last_start = in_end - 5
 									skip_limit = if skip_end < last_start { skip_end } else { last_start }
 									var $skip_at = $in_next
+									# The node is carried already biased. The bias is one window, so masking
+									# the biased node gives the position's chain slot as well.
+									var $skip_node = $skip_at.minus_wrap($base).plus_wrap(Matchfinder.node_bias)
 									while $skip_at < skip_limit {
-										skip_pos = $skip_at.minus_wrap($base)
-										skip_node = skip_pos.plus_wrap(Matchfinder.node_bias).to_u16_wrap()
+										skip_node = $skip_node.to_u16_wrap()
 										prev_head = List.get($mf, HcMatchfinder.hash4_base.plus_wrap($nh4)) ?? 0
 										$mf = match List.set($mf, HcMatchfinder.hash3_base.plus_wrap($nh3), skip_node) {
 											Ok(next) => next
 											Err(_) => crash "CompressLazy.compress: mf index out of bounds"
 										}
-										$mf = match List.set($mf, skip_pos.bitwise_and(32767), prev_head) {
+										$mf = match List.set($mf, $skip_node.bitwise_and(32767), prev_head) {
 											Ok(next) => next
 											Err(_) => crash "CompressLazy.compress: mf index out of bounds"
 										}
@@ -1516,6 +1521,7 @@ CompressLazy := [].{
 											Err(_) => crash "CompressLazy.compress: mf index out of bounds"
 										}
 										$skip_at = $skip_at.plus_wrap(1)
+										$skip_node = $skip_node.plus_wrap(1)
 										skip_hashseq = U32.from_le_bytes(input, $skip_at) ?? 0
 										$nh3 = Matchfinder.lz_hash(skip_hashseq.bitwise_and(0xFFFFFF), HcMatchfinder.hash3_order)
 										$nh4 = Matchfinder.lz_hash(skip_hashseq, HcMatchfinder.hash4_order)
