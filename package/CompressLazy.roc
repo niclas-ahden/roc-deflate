@@ -258,6 +258,12 @@ CompressLazy := [].{
 	compress_greedy : List(U8), Params -> List(U8)
 	compress_greedy = |input, params| {
 		in_end = List.len(input)
+		# Stating the input's minimum length lets every four-byte read below
+		# drop its own test for an input shorter than four bytes.
+		if in_end < 16 {
+			crash "CompressLazy.compress_greedy: Deflate.compress stores inputs this short"
+		} else {
+		}
 		# Positions before this one have a full-length match in reach, so the
 		# search there needs no shortening.
 		full_search_end = if in_end >= DeflateTables.max_match_len { in_end - (DeflateTables.max_match_len - 1) } else { 0 }
@@ -296,8 +302,11 @@ CompressLazy := [].{
 			var $observations = List.repeat(0.U32, CompressLazy.num_observation_types)
 			var $num_new_observations = 0.U64
 			var $num_observations = 0.U64
-			var $freqs_litlen = List.repeat(0.U32, DeflateTables.num_litlen_syms)
-			var $freqs_offset = List.repeat(0.U32, DeflateTables.num_offset_syms)
+			# Each list covers every index its slot lookup can produce, not just
+			# the alphabet: the length slot is a byte added to 257 and the offset
+			# slot is a byte plus 14, so the counts below need no bounds tests.
+			var $freqs_litlen = List.repeat(0.U32, DeflateTables.first_len_sym + 256)
+			var $freqs_offset = List.repeat(0.U32, 256 + 14)
 			$seqs = List.clear($seqs)
 			# The tables hold all three regions for the whole block: the block's
 			# writes only replace entries and the slide keeps the length, so stating
@@ -336,6 +345,12 @@ CompressLazy := [].{
 				if $in_next.minus_wrap($base) == Matchfinder.window_size {
 					$mf = Matchfinder.rebase_nodes($mf)
 					$base = $base.plus_wrap(Matchfinder.window_size)
+					# The slide keeps the length, but stating it again here is what
+					# lets the table writes below keep skipping their bounds tests.
+					if List.len($mf) < HcMatchfinder.table_size {
+						crash "CompressLazy.compress_greedy: hash-chain tables too short"
+					} else {
+					}
 				} else {
 				}
 				# Literals are scanned in an inner loop that runs until a match is
@@ -351,18 +366,24 @@ CompressLazy := [].{
 						# Not enough bytes left to read the next position's hash sequence.
 					} else {
 						cur_pos = $in_next.minus_wrap($base)
-						cur_node3 = List.get($mf, HcMatchfinder.hash3_base.plus_wrap($nh3)) ?? 0
-						cur_node4 = List.get($mf, HcMatchfinder.hash4_base.plus_wrap($nh4)) ?? 0
+						# Both hashes are already reduced to their region's size and the
+						# position is within one window of the base, so these masks change
+						# nothing. They state those bounds where the table accesses can
+						# use them, which a hash carried round the loop cannot.
+						slot3 = HcMatchfinder.hash3_base.plus_wrap($nh3.bitwise_and(32767))
+						slot4 = HcMatchfinder.hash4_base.plus_wrap($nh4.bitwise_and(65535))
+						cur_node3 = List.get($mf, slot3) ?? 0
+						cur_node4 = List.get($mf, slot4) ?? 0
 						pos = (cur_pos.plus_wrap(Matchfinder.node_bias)).to_u16_wrap()
-						$mf = match List.set($mf, HcMatchfinder.hash3_base.plus_wrap($nh3), pos) {
+						$mf = match List.set($mf, slot3, pos) {
 							Ok(next) => next
 							Err(_) => crash "CompressLazy.compress_greedy: mf index out of bounds"
 						}
-						$mf = match List.set($mf, HcMatchfinder.hash4_base.plus_wrap($nh4), pos) {
+						$mf = match List.set($mf, slot4, pos) {
 							Ok(next) => next
 							Err(_) => crash "CompressLazy.compress_greedy: mf index out of bounds"
 						}
-						$mf = match List.set($mf, cur_pos, cur_node4) {
+						$mf = match List.set($mf, cur_pos.bitwise_and(32767), cur_node4) {
 							Ok(next) => next
 							Err(_) => crash "CompressLazy.compress_greedy: mf index out of bounds"
 						}
@@ -459,15 +480,17 @@ CompressLazy := [].{
 						# Now look only for matches longer than the one in hand.
 						while $done == 0 {
 							var $cand_at = 0.U64
+							# The four bytes ending just past the current best length are
+							# what a longer match must agree on. The best length holds for
+							# the whole walk, so they are read once here rather than per
+							# candidate.
+							# Wrapping arithmetic: positions are far below 2^63, and a checked
+							# add or subtract would put an overflow branch on every candidate.
+							best_tail = U32.from_le_bytes(input, $in_next.plus_wrap($best_len).minus_wrap(3)) ?? 0
 							while True {
 								match_at = Matchfinder.node_index($base, $node4)
-								# The four bytes ending just past the current best length
-								# are what a longer match must agree on, so check them
-								# before anything else.
-								# Wrapping arithmetic: positions are far below 2^63, and a checked
-								# add or subtract would put an overflow branch on every candidate.
-								if (U32.from_le_bytes(input, match_at.plus_wrap($best_len).minus_wrap(3)) ?? 0)
-									== (U32.from_le_bytes(input, $in_next.plus_wrap($best_len).minus_wrap(3)) ?? 0)
+								# Check those four bytes before anything else.
+								if (U32.from_le_bytes(input, match_at.plus_wrap($best_len).minus_wrap(3)) ?? 0) == best_tail
 									and (U32.from_le_bytes(input, match_at) ?? 0) == seq4 {
 									$cand_at = match_at
 									break
