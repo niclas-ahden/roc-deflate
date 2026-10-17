@@ -11,43 +11,45 @@
 ##
 ##     roc build --opt=speed tests/ratios.roc && ./tests/ratios
 app [main!] {
-	pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.23.0-rc1/3hT3SoHZ6qbEsa9qVFLUW3547U5LeoNd1KbpqLpz4r1i.tar.zst",
+	pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.26.0-rc2/Gj3zVDr3qrQa6aTh7Z1zgUfe9NeBE6R76T5ho3xrc8af.tar.zst",
 	deflate: "../package/main.roc",
 }
 
 import pf.Stdout
 import pf.Path
-import pf.IOErr exposing [IOErr]
+import pf.IOErr
 import pf.OsStr
 import deflate.Deflate
 
 # Ratchet ceilings: the current Deflate output size in bytes for the Canterbury
 # corpus at each level. Lower these when compression improves.
-max_fastest = 1049073
-max_balanced = 939120
-max_smallest = 918264
+max_level_1 = 791919
+max_level_6 = 721981
+max_level_9 = 694996
+max_level_12 = 673464
 
 main! = |_| {
 	path = OsStr.from_str("tests/corpus/canterbury.bin")
 	corpus = Path.read_bytes!(Path.from_os_str(path)) ? |_| Exit(1)
 	Stdout.line!("corpus: ${corpus.len().to_str()} bytes (Canterbury)")?
 
-	check!("fastest", corpus, Fastest, max_fastest)?
-	check!("balanced", corpus, Balanced, max_balanced)?
-	check!("smallest", corpus, Smallest, max_smallest)?
+	check!("level 1", corpus, 1, max_level_1)?
+	check!("level 6", corpus, 6, max_level_6)?
+	check!("level 9", corpus, 9, max_level_9)?
+	check!("level 12", corpus, 12, max_level_12)?
 
 	Stdout.line!("All ratio gates passed")?
 	Ok({})
 }
 
 # Compress at one level and fail if the output is larger than the ceiling.
-check! : Str, List(U8), [Fastest, Balanced, Smallest], U64 => Try({}, [Exit(I32), StdoutErr(IOErr), ..])
+check! : Str, List(U8), Deflate.Level, U64 => Try({}, [Exit(I32), StdoutErr(IOErr)])
 check! = |name, corpus, level, ceiling| {
 	size = Deflate.compress(corpus, level).len()
 	if size <= ceiling {
 		Stdout.line!("  ${name}: ${size.to_str()} bytes (ceiling ${ceiling.to_str()})")
 	} else {
-		Stdout.line!("  ${name}: REGRESSION — ${size.to_str()} > ceiling ${ceiling.to_str()}")?
+		Stdout.line!("  ${name}: REGRESSION (${size.to_str()} > ceiling ${ceiling.to_str()})")?
 		Err(Exit(1))
 	}
 }
