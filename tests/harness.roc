@@ -69,14 +69,27 @@ main! = |args| {
 		check_roundtrip!(corpus, level)?
 	}
 
-	Stdout.line!("== libdeflate: our streams are the same bytes as libdeflate's")?
-	# libdeflate-gzip has no level 0.
-	for level in Deflate.Level.all.drop_first(1) {
-		check_identical!(corpus, corpus_os, level)?
-	}
+	# CI's Windows runners have no libdeflate-gzip to install, so Windows skips
+	# the comparison. Everywhere else a missing libdeflate-gzip is a failure.
+	libdeflate =
+		match Env.platform!().os {
+			WINDOWS => False
+			_ => True
+		}
 
-	Stdout.line!("== edge lengths: every level round-trips, stays in bound, and matches libdeflate")?
-	check_edges!(tmp, args.len())?
+	if libdeflate {
+		Stdout.line!("== libdeflate: our streams are the same bytes as libdeflate's")?
+		# libdeflate-gzip has no level 0.
+		for level in Deflate.Level.all.drop_first(1) {
+			check_identical!(corpus, corpus_os, level)?
+		}
+
+		Stdout.line!("== edge lengths: every level round-trips, stays in bound, and matches libdeflate")?
+	} else {
+		Stdout.line!("== libdeflate: skipped on Windows")?
+		Stdout.line!("== edge lengths: every level round-trips and stays in bound")?
+	}
+	check_edges!(tmp, args.len(), libdeflate)?
 
 	Stdout.line!("== decoder errors")?
 	check_decoder_errors!(List.sublist(corpus, { start: 0, len: 4096 }), tmp)?
@@ -174,9 +187,9 @@ edge_cases = |extra| {
 # Compress every edge case at every level. libdeflate-gzip compresses the
 # whole set in one run per level, writing each file's `.gz` next to it.
 # libdeflate-gzip has no level 0, so level 0 is held to the round trip and
-# the bound only.
-check_edges! : Path.Path, U64 => Try({}, [Exit(I32), StdoutErr(IOErr)])
-check_edges! = |tmp, extra| {
+# the bound only, and so is every level when `libdeflate` is False.
+check_edges! : Path.Path, U64, Bool => Try({}, [Exit(I32), StdoutErr(IOErr)])
+check_edges! = |tmp, extra, libdeflate| {
 	dir = tmp.join("roc_deflate_harness_edges")
 	Path.create_all!(dir) ? |_| Exit(1)
 	cases = edge_cases(extra)
@@ -187,7 +200,8 @@ check_edges! = |tmp, extra| {
 
 	for level in Deflate.Level.all {
 		n = level.to_u64()
-		if n >= 1 {
+		compare = libdeflate and n >= 1
+		if compare {
 			_ = libdeflate_gzip!([OsStr.from_str("-k"), OsStr.from_str("-f")].concat(file_args), n)?
 		} else {}
 		for c in cases {
@@ -200,7 +214,7 @@ check_edges! = |tmp, extra| {
 				Stdout.line!("  level ${n.to_str()}, ${c.name}: ${List.len(ours).to_str()} bytes is over compress_bound")?
 				return Err(Exit(1))
 			} else {}
-			if n >= 1 {
+			if compare {
 				gz = Path.read_bytes!(dir.join("${c.name}.gz")) ? |_| Exit(1)
 				if ours != gz.drop_first(10).drop_last(8) {
 					Stdout.line!("  level ${n.to_str()}, ${c.name}: DIFFERS from libdeflate")?
