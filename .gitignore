@@ -7,8 +7,14 @@
 .envrc
 generated-docs/
 
-# Benchmark corpus (Silesia), downloaded on demand by benchmark/run.roc
+# Benchmark corpus (Silesia), downloaded on demand by benchmark/corpus.roc
 benchmark/.corpus/
 
 # The catch-alls above ignore extensionless files, but this one must ship
 !LICENSE
+
+# Benchmark caches (decompression streams, driver builds, compressed output),
+# regenerated on demand by benchmark/compress.roc and benchmark/decompress.roc
+benchmark/.streams/
+benchmark/.build/
+benchmark/.work/
