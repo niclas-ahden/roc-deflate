@@ -64,14 +64,23 @@ BtMatchfinder := [].{
 	}
 
 	## A search additionally hands back the match cache it wrote into.
+	##
+	## Each cache entry packs two 16-bit fields: a match's length in the low
+	## half and its offset in the high half, or, for the entry closing a
+	## position's matches, their count and the position's literal byte. One
+	## list then holds both, at libdeflate's four bytes per entry.
 	Advanced : {
 		tables : List(U16),
 		next_hash3 : U64,
 		next_hash4 : U64,
-		cache_len : List(U32),
-		cache_off : List(U32),
+		cache : List(U32),
 		cache_ptr : U64,
 	}
+
+	## One match cache entry: `low` in the low half and `high` above it.
+	pack_cache_entry : U32, U32 -> U32
+	pack_cache_entry = |low, high|
+		low.bitwise_and(0xFFFF).bitwise_or(high.shl_wrap(16))
 
 	## Advance one byte, writing every match found at this position into the
 	## cache in strictly increasing length order.
@@ -79,8 +88,8 @@ BtMatchfinder := [].{
 	## The tables travel as their own argument rather than inside a record,
 	## since a record holding a list is copied when it crosses a call boundary
 	## and the tables are far larger than the search itself.
-	get_matches : List(U16), U64, U64, List(U8), U64, U64, U64, U64, U64, List(U32), List(U32), U64 -> Advanced
-	get_matches = |tables_0, nh3, nh4, input, in_base, cur_pos, max_len, nice_len, max_search_depth, cache_len_0, cache_off_0, cache_ptr_0| {
+	get_matches : List(U16), U64, U64, List(U8), U64, U64, U64, U64, U64, List(U32), U64 -> Advanced
+	get_matches = |tables_0, nh3, nh4, input, in_base, cur_pos, max_len, nice_len, max_search_depth, cache_0, cache_ptr_0| {
 		# Wrapping index arithmetic throughout the search and the skip: every
 		# position touched lies in the window the caller bounded against the
 		# input, a child slot is a masked node doubled, and each read's own
@@ -91,8 +100,7 @@ BtMatchfinder := [].{
 			crash "BtMatchfinder: tables too short"
 		} else {
 		}
-		var $cache_len = cache_len_0
-		var $cache_off = cache_off_0
+		var $cache = cache_0
 		var $cache_ptr = cache_ptr_0
 
 		in_next = in_base.plus_wrap(cur_pos)
@@ -121,25 +129,17 @@ BtMatchfinder := [].{
 			seq3 = (U32.from_le_bytes(input, in_next) ?? 0).bitwise_and(0xFFFFFF)
 			at3 = Matchfinder.node_index(in_base, node3)
 			if seq3 == (U32.from_le_bytes(input, at3) ?? 0).bitwise_and(0xFFFFFF) {
-				$cache_len = match List.set($cache_len, $cache_ptr, 3) {
+				$cache = match List.set($cache, $cache_ptr, BtMatchfinder.pack_cache_entry(3, in_next.minus_wrap(at3).to_u32_wrap())) {
 					Ok(next) => next
-					Err(_) => crash "BtMatchfinder.get_matches: cache_len index out of bounds"
-				}
-				$cache_off = match List.set($cache_off, $cache_ptr, in_next.minus_wrap(at3).to_u32_wrap()) {
-					Ok(next) => next
-					Err(_) => crash "BtMatchfinder.get_matches: cache_off index out of bounds"
+					Err(_) => crash "BtMatchfinder.get_matches: match cache index out of bounds"
 				}
 				$cache_ptr = $cache_ptr.plus_wrap(1)
 			} else if node3_2.to_u64() > cur_pos {
 				at3b = Matchfinder.node_index(in_base, node3_2)
 				if seq3 == (U32.from_le_bytes(input, at3b) ?? 0).bitwise_and(0xFFFFFF) {
-					$cache_len = match List.set($cache_len, $cache_ptr, 3) {
+					$cache = match List.set($cache, $cache_ptr, BtMatchfinder.pack_cache_entry(3, in_next.minus_wrap(at3b).to_u32_wrap())) {
 						Ok(next) => next
-						Err(_) => crash "BtMatchfinder.get_matches: cache_len index out of bounds"
-					}
-					$cache_off = match List.set($cache_off, $cache_ptr, in_next.minus_wrap(at3b).to_u32_wrap()) {
-						Ok(next) => next
-						Err(_) => crash "BtMatchfinder.get_matches: cache_off index out of bounds"
+						Err(_) => crash "BtMatchfinder.get_matches: match cache index out of bounds"
 					}
 					$cache_ptr = $cache_ptr.plus_wrap(1)
 				} else {
@@ -173,8 +173,7 @@ BtMatchfinder := [].{
 				tables: $mf,
 				next_hash3: out_hash3,
 				next_hash4: out_hash4,
-				cache_len: $cache_len,
-				cache_off: $cache_off,
+				cache: $cache,
 				cache_ptr: $cache_ptr,
 			}
 		} else {
@@ -195,13 +194,9 @@ BtMatchfinder := [].{
 				$len = Matchfinder.lz_extend(input, in_next, match_at, $len.plus_wrap(1), max_len)
 				if $len > $best_len {
 					$best_len = $len
-					$cache_len = match List.set($cache_len, $cache_ptr, $len.to_u32_wrap()) {
+					$cache = match List.set($cache, $cache_ptr, BtMatchfinder.pack_cache_entry($len.to_u32_wrap(), in_next.minus_wrap(match_at).to_u32_wrap())) {
 						Ok(next) => next
-						Err(_) => crash "BtMatchfinder.get_matches: cache_len index out of bounds"
-					}
-					$cache_off = match List.set($cache_off, $cache_ptr, in_next.minus_wrap(match_at).to_u32_wrap()) {
-						Ok(next) => next
-						Err(_) => crash "BtMatchfinder.get_matches: cache_off index out of bounds"
+						Err(_) => crash "BtMatchfinder.get_matches: match cache index out of bounds"
 					}
 					$cache_ptr = $cache_ptr.plus_wrap(1)
 					if $len >= nice_len {
@@ -277,8 +272,7 @@ BtMatchfinder := [].{
 			tables: $mf,
 			next_hash3: out_hash3,
 			next_hash4: out_hash4,
-			cache_len: $cache_len,
-			cache_off: $cache_off,
+			cache: $cache,
 			cache_ptr: $cache_ptr,
 		}
 	}

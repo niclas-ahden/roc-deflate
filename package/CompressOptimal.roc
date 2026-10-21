@@ -415,8 +415,8 @@ CompressOptimal := [].{
 	## index `top - n` (see `node_top`): a position's node comes after every
 	## later position's, which is exactly what its cost scan reads. The tables
 	## keep their capacity from block to block and are never initialized.
-	find_min_cost_path : U64, List(U32), List(U32), U64, List(U32), List(U32), List(U32), List(U32), List(U32) -> PathResult
-	find_min_cost_path = |block_length, cache_len, cache_off, cache_end, node_cost_0, node_item_0, cost_literal, cost_length, cost_offset_slot| {
+	find_min_cost_path : U64, List(U32), U64, List(U32), List(U32), List(U32), List(U32), List(U32) -> PathResult
+	find_min_cost_path = |block_length, cache, cache_end, node_cost_0, node_item_0, cost_literal, cost_length, cost_offset_slot| {
 		top = CompressOptimal.node_top(block_length)
 		# The length table has one cost per match length. Stating its size here
 		# lets every per-length read below skip its bounds test.
@@ -457,8 +457,8 @@ CompressOptimal := [].{
 		while $cur != 0 {
 			$cur = $cur.minus_wrap(1)
 			$cp = $cp.minus_wrap(1)
-			num_matches = (List.get(cache_len, $cp) ?? 0).to_u64()
-			literal = (List.get(cache_off, $cp) ?? 0).to_u64()
+			num_matches = (List.get(cache, $cp) ?? 0).bitwise_and(0xFFFF).to_u64()
+			literal = (List.get(cache, $cp) ?? 0).shr_zf_wrap(16).to_u64()
 
 			# A literal is always available, so it seeds the comparison.
 			var $best = (List.get(cost_literal, literal) ?? 0).plus_wrap(List.get($node_cost, List.len($node_cost).minus_wrap(1)) ?? 0)
@@ -468,9 +468,9 @@ CompressOptimal := [].{
 				var $m = $cp.minus_wrap(num_matches)
 				var $k = 0.U64
 				while $m != $cp {
-					offset = (List.get(cache_off, $m) ?? 0).to_u64()
+					offset = (List.get(cache, $m) ?? 0).shr_zf_wrap(16).to_u64()
 					offset_cost = List.get(cost_offset_slot, DeflateTables.offset_slot(offset)) ?? 0
-					this_len = (List.get(cache_len, $m) ?? 0).to_u64()
+					this_len = (List.get(cache, $m) ?? 0).bitwise_and(0xFFFF).to_u64()
 					# A cached match is between the minimum and maximum match
 					# lengths. Stating that bounds every length tried below, so
 					# the per-length table reads skip their bounds tests.
@@ -705,8 +705,7 @@ CompressOptimal := [].{
 		var $nh3 = 0.U64
 		var $nh4 = 0.U64
 
-		var $cache_len = List.repeat(0.U32, CompressOptimal.match_cache_size)
-		var $cache_off = List.repeat(0.U32, CompressOptimal.match_cache_size)
+		var $cache = List.repeat(0.U32, CompressOptimal.match_cache_size)
 		var $cache_ptr = 0.U64
 		var $node_cost = List.with_capacity(CompressOptimal.optimum_nodes_size)
 		var $node_item = List.with_capacity(CompressOptimal.optimum_nodes_size)
@@ -799,18 +798,16 @@ CompressOptimal := [].{
 						$max_len,
 						$nice_len,
 						params.max_search_depth,
-						$cache_len,
-						$cache_off,
+						$cache,
 						$cache_ptr,
 					)
 					$mf = adv.tables
 					$nh3 = adv.next_hash3
 					$nh4 = adv.next_hash4
-					$cache_len = adv.cache_len
-					$cache_off = adv.cache_off
+					$cache = adv.cache
 					$cache_ptr = adv.cache_ptr
 					if $cache_ptr > matches_at {
-						$best_len = (List.get($cache_len, $cache_ptr.minus_wrap(1)) ?? 0).to_u64()
+						$best_len = (List.get($cache, $cache_ptr.minus_wrap(1)) ?? 0).bitwise_and(0xFFFF).to_u64()
 					} else {
 					}
 				} else {
@@ -850,13 +847,9 @@ CompressOptimal := [].{
 
 				# Close the position with a header giving how many matches were
 				# written for it and the literal that starts there.
-				$cache_len = match List.set($cache_len, $cache_ptr, $cache_ptr.minus_wrap(matches_at).to_u32_wrap()) {
+				$cache = match List.set($cache, $cache_ptr, BtMatchfinder.pack_cache_entry($cache_ptr.minus_wrap(matches_at).to_u32_wrap(), (List.get(input, $in_next) ?? 0).to_u32())) {
 					Ok(next) => next
-					Err(_) => crash "CompressOptimal.compress: cache_len index out of bounds"
-				}
-				$cache_off = match List.set($cache_off, $cache_ptr, (List.get(input, $in_next) ?? 0).to_u32()) {
-					Ok(next) => next
-					Err(_) => crash "CompressOptimal.compress: cache_off index out of bounds"
+					Err(_) => crash "CompressOptimal.compress: match cache index out of bounds"
 				}
 				$in_next = $in_next.plus_wrap(1)
 				$cache_ptr = $cache_ptr.plus_wrap(1)
@@ -896,13 +889,9 @@ CompressOptimal := [].{
 							$nh4 = sk.next_hash4
 						} else {
 						}
-						$cache_len = match List.set($cache_len, $cache_ptr, 0) {
+						$cache = match List.set($cache, $cache_ptr, BtMatchfinder.pack_cache_entry(0, (List.get(input, $in_next) ?? 0).to_u32())) {
 							Ok(next) => next
-							Err(_) => crash "CompressOptimal.compress: cache_len index out of bounds"
-						}
-						$cache_off = match List.set($cache_off, $cache_ptr, (List.get(input, $in_next) ?? 0).to_u32()) {
-							Ok(next) => next
-							Err(_) => crash "CompressOptimal.compress: cache_off index out of bounds"
+							Err(_) => crash "CompressOptimal.compress: match cache index out of bounds"
 						}
 						$in_next = $in_next.plus_wrap(1)
 						$cache_ptr = $cache_ptr.plus_wrap(1)
@@ -951,7 +940,7 @@ CompressOptimal := [].{
 				var $to_rewind = $in_next - $prev_end_block_check
 				while $to_rewind != 0 {
 					$cache_end = $cache_end - 1
-					$cache_end = $cache_end - (List.get($cache_len, $cache_end) ?? 0).to_u64()
+					$cache_end = $cache_end - (List.get($cache, $cache_end) ?? 0).bitwise_and(0xFFFF).to_u64()
 					$to_rewind = $to_rewind - 1
 				}
 				$rewound = $cache_ptr - $cache_end
@@ -992,8 +981,7 @@ CompressOptimal := [].{
 				)
 				path = CompressOptimal.find_min_cost_path(
 					block_length,
-					$cache_len,
-					$cache_off,
+					$cache,
 					$cache_end,
 					$node_cost,
 					$node_item,
@@ -1057,8 +1045,7 @@ CompressOptimal := [].{
 			while $optimizing == 1 {
 				path = CompressOptimal.find_min_cost_path(
 					block_length,
-					$cache_len,
-					$cache_off,
+					$cache,
 					$cache_end,
 					$node_cost,
 					$node_item,
@@ -1156,8 +1143,7 @@ CompressOptimal := [].{
 					$cost_offset_slot = from_codes.offset_slot
 					path = CompressOptimal.find_min_cost_path(
 						block_length,
-						$cache_len,
-						$cache_off,
+						$cache,
 						$cache_end,
 						$node_cost,
 						$node_item,
@@ -1183,8 +1169,7 @@ CompressOptimal := [].{
 				$cost_offset_slot = $saved_offset_slot
 				path = CompressOptimal.find_min_cost_path(
 					block_length,
-					$cache_len,
-					$cache_off,
+					$cache,
 					$cache_end,
 					$node_cost,
 					$node_item,
@@ -1257,15 +1242,10 @@ CompressOptimal := [].{
 				# cache, since they belong to the block now starting.
 				var $k = 0.U64
 				while $k < $rewound {
-					v_len = List.get($cache_len, $cache_end + $k) ?? 0
-					$cache_len = match List.set($cache_len, $k, v_len) {
+					entry = List.get($cache, $cache_end + $k) ?? 0
+					$cache = match List.set($cache, $k, entry) {
 						Ok(next) => next
-						Err(_) => crash "CompressOptimal.compress: cache_len index out of bounds"
-					}
-					v_off = List.get($cache_off, $cache_end + $k) ?? 0
-					$cache_off = match List.set($cache_off, $k, v_off) {
-						Ok(next) => next
-						Err(_) => crash "CompressOptimal.compress: cache_off index out of bounds"
+						Err(_) => crash "CompressOptimal.compress: match cache index out of bounds"
 					}
 					$k = $k + 1
 				}
