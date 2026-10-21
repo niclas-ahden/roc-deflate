@@ -39,7 +39,7 @@ Matchfinder := [].{
 	## node already in the first window stays permanently out of it.
 	rebase_nodes : List(U16) -> List(U16)
 	rebase_nodes = |table|
-		List.map(table, |v| if v >= 32768 { v.minus_wrap(32768) } else { 0 })
+		List.map(table, |v| v.minus_saturated(32768))
 
 	## Absolute input index of a biased node.
 	node_index : U64, U16 -> U64
