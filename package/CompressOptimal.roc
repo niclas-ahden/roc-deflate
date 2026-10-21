@@ -698,12 +698,10 @@ CompressOptimal := [].{
 		var $bitbuf = 0.U64
 		var $bitcount = 0.U64
 
-		# The matchfinder tables and the two big per-block arrays are held as
-		# separate values rather than in one record: a record of lists is
+		# The matchfinder's tables (one list) and the two big per-block arrays
+		# are held as separate values rather than in one record: a record of lists is
 		# copied whenever it crosses a call boundary.
-		var $tab3 = Matchfinder.init_nodes(BtMatchfinder.hash3_size)
-		var $tab4 = Matchfinder.init_nodes(BtMatchfinder.hash4_size)
-		var $child = Matchfinder.init_nodes(BtMatchfinder.child_size)
+		var $mf = Matchfinder.init_nodes(BtMatchfinder.table_size)
 		var $nh3 = 0.U64
 		var $nh4 = 0.U64
 
@@ -777,9 +775,7 @@ CompressOptimal := [].{
 				remaining = in_end.minus_wrap($in_next)
 
 				if $in_next == $in_next_slide {
-					$tab3 = Matchfinder.rebase_nodes($tab3)
-					$tab4 = Matchfinder.rebase_nodes($tab4)
-					$child = Matchfinder.rebase_nodes($child)
+					$mf = Matchfinder.rebase_nodes($mf)
 					$in_cur_base = $in_next
 					$in_next_slide = $in_next.plus_wrap(remaining.min(Matchfinder.window_size))
 				} else {
@@ -794,9 +790,7 @@ CompressOptimal := [].{
 				}
 				if $max_len >= BtMatchfinder.required_nbytes {
 					adv = BtMatchfinder.get_matches(
-						$tab3,
-						$tab4,
-						$child,
+						$mf,
 						$nh3,
 						$nh4,
 						input,
@@ -809,9 +803,7 @@ CompressOptimal := [].{
 						$cache_off,
 						$cache_ptr,
 					)
-					$tab3 = adv.hash3
-					$tab4 = adv.hash4
-					$child = adv.child
+					$mf = adv.tables
 					$nh3 = adv.next_hash3
 					$nh4 = adv.next_hash4
 					$cache_len = adv.cache_len
@@ -878,9 +870,7 @@ CompressOptimal := [].{
 					while $skip != 0 {
 						remaining2 = in_end.minus_wrap($in_next)
 						if $in_next == $in_next_slide {
-							$tab3 = Matchfinder.rebase_nodes($tab3)
-							$tab4 = Matchfinder.rebase_nodes($tab4)
-							$child = Matchfinder.rebase_nodes($child)
+							$mf = Matchfinder.rebase_nodes($mf)
 							$in_cur_base = $in_next
 							$in_next_slide = $in_next.plus_wrap(remaining2.min(Matchfinder.window_size))
 						} else {
@@ -892,9 +882,7 @@ CompressOptimal := [].{
 						}
 						if $max_len >= BtMatchfinder.required_nbytes {
 							sk = BtMatchfinder.skip_byte(
-								$tab3,
-								$tab4,
-								$child,
+								$mf,
 								$nh3,
 								$nh4,
 								input,
@@ -903,9 +891,7 @@ CompressOptimal := [].{
 								$nice_len,
 								params.max_search_depth,
 							)
-							$tab3 = sk.hash3
-							$tab4 = sk.hash4
-							$child = sk.child
+							$mf = sk.tables
 							$nh3 = sk.next_hash3
 							$nh4 = sk.next_hash4
 						} else {
