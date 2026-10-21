@@ -746,6 +746,12 @@ CompressLazy := [].{
 	compress : List(U8), Params -> List(U8)
 	compress = |input, params| {
 		in_end = List.len(input)
+		# Stating the input's minimum length lets every four-byte read below
+		# drop its own test for an input shorter than four bytes.
+		if in_end < 16 {
+			crash "CompressLazy.compress: Deflate.compress stores inputs this short"
+		} else {
+		}
 		static = CompressLazy.build_static_codes(0)
 		var $s_litlen_lens = static.litlen_lens
 		var $s_litlen_codewords = static.litlen_codewords
@@ -783,8 +789,11 @@ CompressLazy := [].{
 			var $observations = List.repeat(0.U32, CompressLazy.num_observation_types)
 			var $num_new_observations = 0.U64
 			var $num_observations = 0.U64
-			var $freqs_litlen = List.repeat(0.U32, DeflateTables.num_litlen_syms)
-			var $freqs_offset = List.repeat(0.U32, DeflateTables.num_offset_syms)
+			# Each list covers every index its slot lookup can produce, not just
+			# the alphabet: the length slot is a byte added to 257 and the offset
+			# slot is a byte plus 14, so the counts below need no bounds tests.
+			var $freqs_litlen = List.repeat(0.U32, DeflateTables.first_len_sym + 256)
+			var $freqs_offset = List.repeat(0.U32, 256 + 14)
 			$seqs = List.clear($seqs)
 			# The tables hold all three regions for the whole block: the block's
 			# writes only replace entries and the slide keeps the length, so stating
@@ -831,6 +840,12 @@ CompressLazy := [].{
 				if $in_next.minus_wrap($base) == Matchfinder.window_size {
 					$mf = Matchfinder.rebase_nodes($mf)
 					$base = $base.plus_wrap(Matchfinder.window_size)
+					# The slide keeps the length, but stating it again here is what
+					# lets the table writes below keep skipping their bounds tests.
+					if List.len($mf) < HcMatchfinder.table_size {
+						crash "CompressLazy.compress: hash-chain tables too short"
+					} else {
+					}
 				} else {
 				}
 				var $found = { length: $min_len.minus_wrap(1), offset: 0.U64 }
@@ -838,18 +853,24 @@ CompressLazy := [].{
 					# Not enough bytes left to read the next position's hash sequence.
 				} else {
 					cur_pos = $in_next.minus_wrap($base)
-					cur_node3 = List.get($mf, HcMatchfinder.hash3_base.plus_wrap($nh3)) ?? 0
-					cur_node4 = List.get($mf, HcMatchfinder.hash4_base.plus_wrap($nh4)) ?? 0
+					# Both hashes are already reduced to their region's size and the
+					# position is within one window of the base, so these masks change
+					# nothing. They state those bounds where the table accesses can
+					# use them, which a hash carried round the loop cannot.
+					slot3 = HcMatchfinder.hash3_base.plus_wrap($nh3.bitwise_and(32767))
+					slot4 = HcMatchfinder.hash4_base.plus_wrap($nh4.bitwise_and(65535))
+					cur_node3 = List.get($mf, slot3) ?? 0
+					cur_node4 = List.get($mf, slot4) ?? 0
 					pos = (cur_pos.plus_wrap(Matchfinder.node_bias)).to_u16_wrap()
-					$mf = match List.set($mf, HcMatchfinder.hash3_base.plus_wrap($nh3), pos) {
+					$mf = match List.set($mf, slot3, pos) {
 						Ok(next) => next
 						Err(_) => crash "CompressLazy.compress: mf index out of bounds"
 					}
-					$mf = match List.set($mf, HcMatchfinder.hash4_base.plus_wrap($nh4), pos) {
+					$mf = match List.set($mf, slot4, pos) {
 						Ok(next) => next
 						Err(_) => crash "CompressLazy.compress: mf index out of bounds"
 					}
-					$mf = match List.set($mf, cur_pos, cur_node4) {
+					$mf = match List.set($mf, cur_pos.bitwise_and(32767), cur_node4) {
 						Ok(next) => next
 						Err(_) => crash "CompressLazy.compress: mf index out of bounds"
 					}
@@ -944,15 +965,18 @@ CompressLazy := [].{
 					# Now look only for matches longer than the one in hand.
 					while $done_s == 0 {
 						var $cand_at_s = 0.U64
+						# The four bytes ending just past the current best length are
+						# what a longer match must agree on. The best length holds for
+						# the whole walk, so they are read once here rather than per
+						# candidate.
+						best_tail_s = U32.from_le_bytes(input, $in_next.plus_wrap($best_len_s).minus_wrap(3)) ?? 0
 						while True {
 							match_at_s = Matchfinder.node_index($base, $node4_s)
-							# The four bytes ending just past the current best length
-							# are what a longer match must agree on, so check them
-							# before anything else.
+							# Check those four bytes before anything else.
 							# Wrapping arithmetic: positions are far below 2^63, and a checked
 							# add or subtract would put an overflow branch on every candidate.
 							if (U32.from_le_bytes(input, match_at_s.plus_wrap($best_len_s).minus_wrap(3)) ?? 0)
-								== (U32.from_le_bytes(input, $in_next.plus_wrap($best_len_s).minus_wrap(3)) ?? 0)
+								== best_tail_s
 								and (U32.from_le_bytes(input, match_at_s) ?? 0) == seq4_s {
 								$cand_at_s = match_at_s
 								break
@@ -1043,6 +1067,12 @@ CompressLazy := [].{
 							if $in_next.minus_wrap($base) == Matchfinder.window_size {
 								$mf = Matchfinder.rebase_nodes($mf)
 								$base = $base.plus_wrap(Matchfinder.window_size)
+								# The slide keeps the length, but stating it again here is what
+								# lets the table writes below keep skipping their bounds tests.
+								if List.len($mf) < HcMatchfinder.table_size {
+									crash "CompressLazy.compress: hash-chain tables too short"
+								} else {
+								}
 							} else {
 							}
 							var $nxt = { length: $cur_len.minus_wrap(1), offset: 0.U64 }
@@ -1050,18 +1080,24 @@ CompressLazy := [].{
 								# Not enough bytes left to read the next position's hash sequence.
 							} else {
 								cur_pos = $in_next.minus_wrap($base)
-								cur_node3 = List.get($mf, HcMatchfinder.hash3_base.plus_wrap($nh3)) ?? 0
-								cur_node4 = List.get($mf, HcMatchfinder.hash4_base.plus_wrap($nh4)) ?? 0
+								# Both hashes are already reduced to their region's size and the
+								# position is within one window of the base, so these masks change
+								# nothing. They state those bounds where the table accesses can
+								# use them, which a hash carried round the loop cannot.
+								slot3 = HcMatchfinder.hash3_base.plus_wrap($nh3.bitwise_and(32767))
+								slot4 = HcMatchfinder.hash4_base.plus_wrap($nh4.bitwise_and(65535))
+								cur_node3 = List.get($mf, slot3) ?? 0
+								cur_node4 = List.get($mf, slot4) ?? 0
 								pos = (cur_pos.plus_wrap(Matchfinder.node_bias)).to_u16_wrap()
-								$mf = match List.set($mf, HcMatchfinder.hash3_base.plus_wrap($nh3), pos) {
+								$mf = match List.set($mf, slot3, pos) {
 									Ok(next) => next
 									Err(_) => crash "CompressLazy.compress: mf index out of bounds"
 								}
-								$mf = match List.set($mf, HcMatchfinder.hash4_base.plus_wrap($nh4), pos) {
+								$mf = match List.set($mf, slot4, pos) {
 									Ok(next) => next
 									Err(_) => crash "CompressLazy.compress: mf index out of bounds"
 								}
-								$mf = match List.set($mf, cur_pos, cur_node4) {
+								$mf = match List.set($mf, cur_pos.bitwise_and(32767), cur_node4) {
 									Ok(next) => next
 									Err(_) => crash "CompressLazy.compress: mf index out of bounds"
 								}
@@ -1156,15 +1192,18 @@ CompressLazy := [].{
 								# Now look only for matches longer than the one in hand.
 								while $done_n == 0 {
 									var $cand_at_n = 0.U64
+									# The four bytes ending just past the current best length are
+									# what a longer match must agree on. The best length holds for
+									# the whole walk, so they are read once here rather than per
+									# candidate.
+									best_tail_n = U32.from_le_bytes(input, $in_next.plus_wrap($best_len_n).minus_wrap(3)) ?? 0
 									while True {
 										match_at_n = Matchfinder.node_index($base, $node4_n)
-										# The four bytes ending just past the current best length
-										# are what a longer match must agree on, so check them
-										# before anything else.
+										# Check those four bytes before anything else.
 										# Wrapping arithmetic: positions are far below 2^63, and a checked
 										# add or subtract would put an overflow branch on every candidate.
 										if (U32.from_le_bytes(input, match_at_n.plus_wrap($best_len_n).minus_wrap(3)) ?? 0)
-											== (U32.from_le_bytes(input, $in_next.plus_wrap($best_len_n).minus_wrap(3)) ?? 0)
+											== best_tail_n
 											and (U32.from_le_bytes(input, match_at_n) ?? 0) == seq4_n {
 											$cand_at_n = match_at_n
 											break
@@ -1244,6 +1283,12 @@ CompressLazy := [].{
 								if $in_next.minus_wrap($base) == Matchfinder.window_size {
 									$mf = Matchfinder.rebase_nodes($mf)
 									$base = $base.plus_wrap(Matchfinder.window_size)
+									# The slide keeps the length, but stating it again here is what
+									# lets the table writes below keep skipping their bounds tests.
+									if List.len($mf) < HcMatchfinder.table_size {
+										crash "CompressLazy.compress: hash-chain tables too short"
+									} else {
+									}
 								} else {
 								}
 								var $nxt2 = { length: $cur_len.minus_wrap(1), offset: 0.U64 }
@@ -1251,18 +1296,24 @@ CompressLazy := [].{
 									# Not enough bytes left to read the next position's hash sequence.
 								} else {
 									cur_pos = $in_next.minus_wrap($base)
-									cur_node3 = List.get($mf, HcMatchfinder.hash3_base.plus_wrap($nh3)) ?? 0
-									cur_node4 = List.get($mf, HcMatchfinder.hash4_base.plus_wrap($nh4)) ?? 0
+									# Both hashes are already reduced to their region's size and the
+									# position is within one window of the base, so these masks change
+									# nothing. They state those bounds where the table accesses can
+									# use them, which a hash carried round the loop cannot.
+									slot3 = HcMatchfinder.hash3_base.plus_wrap($nh3.bitwise_and(32767))
+									slot4 = HcMatchfinder.hash4_base.plus_wrap($nh4.bitwise_and(65535))
+									cur_node3 = List.get($mf, slot3) ?? 0
+									cur_node4 = List.get($mf, slot4) ?? 0
 									pos = (cur_pos.plus_wrap(Matchfinder.node_bias)).to_u16_wrap()
-									$mf = match List.set($mf, HcMatchfinder.hash3_base.plus_wrap($nh3), pos) {
+									$mf = match List.set($mf, slot3, pos) {
 										Ok(next) => next
 										Err(_) => crash "CompressLazy.compress: mf index out of bounds"
 									}
-									$mf = match List.set($mf, HcMatchfinder.hash4_base.plus_wrap($nh4), pos) {
+									$mf = match List.set($mf, slot4, pos) {
 										Ok(next) => next
 										Err(_) => crash "CompressLazy.compress: mf index out of bounds"
 									}
-									$mf = match List.set($mf, cur_pos, cur_node4) {
+									$mf = match List.set($mf, cur_pos.bitwise_and(32767), cur_node4) {
 										Ok(next) => next
 										Err(_) => crash "CompressLazy.compress: mf index out of bounds"
 									}
@@ -1357,15 +1408,18 @@ CompressLazy := [].{
 									# Now look only for matches longer than the one in hand.
 									while $done_m == 0 {
 										var $cand_at_m = 0.U64
+										# The four bytes ending just past the current best length are
+										# what a longer match must agree on. The best length holds for
+										# the whole walk, so they are read once here rather than per
+										# candidate.
+										best_tail_m = U32.from_le_bytes(input, $in_next.plus_wrap($best_len_m).minus_wrap(3)) ?? 0
 										while True {
 											match_at_m = Matchfinder.node_index($base, $node4_m)
-											# The four bytes ending just past the current best length
-											# are what a longer match must agree on, so check them
-											# before anything else.
+											# Check those four bytes before anything else.
 											# Wrapping arithmetic: positions are far below 2^63, and a checked
 											# add or subtract would put an overflow branch on every candidate.
 											if (U32.from_le_bytes(input, match_at_m.plus_wrap($best_len_m).minus_wrap(3)) ?? 0)
-												== (U32.from_le_bytes(input, $in_next.plus_wrap($best_len_m).minus_wrap(3)) ?? 0)
+												== best_tail_m
 												and (U32.from_le_bytes(input, match_at_m) ?? 0) == seq4_m {
 												$cand_at_m = match_at_m
 												break
