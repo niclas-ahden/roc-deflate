@@ -25,6 +25,9 @@ CompressFast := [].{
 	compress : List(U8), U64 -> List(U8)
 	compress = |input, nice_match_length| {
 		in_end = List.len(input)
+		# Positions before this one have a full-length match in reach, so the
+		# search there needs no shortening.
+		full_search_end = if in_end >= DeflateTables.max_match_len { in_end - (DeflateTables.max_match_len - 1) } else { 0 }
 		static = CompressLazy.build_static_codes(0)
 		var $s_litlen_lens = static.litlen_lens
 		var $s_litlen_codewords = static.litlen_codewords
@@ -96,14 +99,137 @@ CompressFast := [].{
 				}
 
 				if $searched == 1 {
-					found = HtMatchfinder.longest_match($tab, $base, $nh, input, $in_next, $max_len, $nice_len)
-					$tab = found.hash_tab
-					$base = found.in_cur_base
-					$nh = found.next_hash
+					# Slide the table when the window has moved one whole window past
+					# the base.
+					if $in_next.minus_wrap($base) == Matchfinder.window_size {
+						$tab = Matchfinder.rebase_nodes($tab)
+						$base = $base.plus_wrap(Matchfinder.window_size)
+					} else {
+					}
+					# Literals are scanned in an inner loop that runs until a match is
+					# found or the cursor reaches the next position needing one of the
+					# outer loop's checks: the window slide, the shortened search near
+					# the input end, or the block end. One compare stands in for all
+					# three. The scan's end is at least four bytes before the input's,
+					# which stated here makes every read at and just past the cursor
+					# in bounds.
+					scan_end = in_max_block_end.min($base.plus_wrap(Matchfinder.window_size)).min(full_search_end)
+					if scan_end + 4 > List.len(input) or List.len($tab) < HtMatchfinder.table_size {
+						crash "CompressFast.compress: scan past the input or hash table too short"
+					} else {
+					}
+					# The scan only probes the position's bucket and stops at the first
+					# candidate whose four bytes agree, leaving the match extension to
+					# run once below. That keeps nothing but the cursor, the hash, and
+					# the tables live on the per-literal path: on a 16-register machine
+					# one more value there spills the cursor to the stack, putting a
+					# store and reload on every literal's critical path.
+					scan_start = $in_next
+					var $found_node0 = 0.U16
+					var $found_node1 = 0.U16
+					var $found0 = False
+					var $found = False
+					while $in_next < scan_end and !$found {
+						cur_pos = $in_next.minus_wrap($base)
+						seq = U32.from_le_bytes(input, $in_next) ?? 0
+						slot0 = $nh.bitwise_and(0x7FFF).times_wrap(2)
+						$nh = Matchfinder.lz_hash(U32.from_le_bytes(input, $in_next.plus_wrap(1)) ?? 0, HtMatchfinder.hash_order)
+						$tab = List.prefetched($tab, $nh.times_wrap(2))
+						cur_node0 = List.get($tab, slot0) ?? 0
+						$tab = match List.set($tab, slot0, cur_pos.plus_wrap(Matchfinder.node_bias).to_u16_wrap()) {
+							Ok(next) => next
+							Err(_) => crash "CompressFast.compress: tab index out of bounds"
+						}
+						if cur_node0.to_u64() > cur_pos {
+							# Push the displaced entry into the second slot.
+							cur_node1 = List.get($tab, slot0.plus_wrap(1)) ?? 0
+							$tab = match List.set($tab, slot0.plus_wrap(1), cur_node0) {
+								Ok(next) => next
+								Err(_) => crash "CompressFast.compress: tab index out of bounds"
+							}
+							if (U32.from_le_bytes(input, Matchfinder.node_index($base, cur_node0)) ?? 0) == seq {
+								$found0 = True
+								$found = True
+							} else if cur_node1.to_u64() > cur_pos
+								and (U32.from_le_bytes(input, Matchfinder.node_index($base, cur_node1)) ?? 0) == seq {
+								$found = True
+							} else {
+							}
+							$found_node0 = cur_node0
+							$found_node1 = cur_node1
+						} else {
+						}
+						if !$found {
+							lit = (List.get(input, $in_next) ?? 0).to_u64()
+							lit_count = (List.get($freqs_litlen, lit) ?? 0).plus_wrap(1)
+							$freqs_litlen = match List.set($freqs_litlen, lit, lit_count) {
+								Ok(next) => next
+								Err(_) => crash "CompressFast.compress: freqs_litlen index out of bounds"
+							}
+							$in_next = $in_next.plus_wrap(1)
+						} else {
+						}
+					}
 
-					if found.length != 0 {
-						length_slot = DeflateTables.length_slot(found.length)
-						offset_slot = DeflateTables.offset_slot(found.offset)
+					var $found_len = 0.U64
+					var $found_offset = 0.U64
+					if $found {
+						# The longest match among the bucket's candidates, as
+						# `HtMatchfinder.longest_match` finds it: the first entry if its
+						# four bytes agree, then the second if it can be longer.
+						cur_pos = $in_next.minus_wrap($base)
+						seq = U32.from_le_bytes(input, $in_next) ?? 0
+						if $found0 {
+							match0_at = Matchfinder.node_index($base, $found_node0)
+							$found_len = Matchfinder.lz_extend(input, $in_next, match0_at, 4, $max_len)
+							$found_offset = $in_next.minus_wrap(match0_at)
+							if $found_node1.to_u64() <= cur_pos or $found_len >= $nice_len {
+							} else {
+								match1_at = Matchfinder.node_index($base, $found_node1)
+								if (U32.from_le_bytes(input, match1_at) ?? 0) == seq
+									and (U32.from_le_bytes(input, match1_at.plus_wrap($found_len).minus_wrap(3)) ?? 0)
+										== (U32.from_le_bytes(input, $in_next.plus_wrap($found_len).minus_wrap(3)) ?? 0) {
+									len = Matchfinder.lz_extend(input, $in_next, match1_at, 4, $max_len)
+									if len > $found_len {
+										$found_len = len
+										$found_offset = $in_next.minus_wrap(match1_at)
+									} else {
+									}
+								} else {
+								}
+							}
+						} else {
+							match1_at = Matchfinder.node_index($base, $found_node1)
+							$found_len = Matchfinder.lz_extend(input, $in_next, match1_at, 4, $max_len)
+							$found_offset = $in_next.minus_wrap(match1_at)
+						}
+					} else if $in_next == scan_start {
+						# A position the scan does not cover, near the input's end or
+						# where a slide is due: search it with the general routine. A
+						# scan that ran to its end leaves its next position to the
+						# outer loop, which shortens the search there if it must.
+						found = HtMatchfinder.longest_match($tab, $base, $nh, input, $in_next, $max_len, $nice_len)
+						$tab = found.hash_tab
+						$base = found.in_cur_base
+						$nh = found.next_hash
+						if found.length != 0 {
+							$found_len = found.length
+							$found_offset = found.offset
+						} else {
+							lit = (List.get(input, $in_next) ?? 0).to_u64()
+							lit_count = (List.get($freqs_litlen, lit) ?? 0).plus_wrap(1)
+							$freqs_litlen = match List.set($freqs_litlen, lit, lit_count) {
+								Ok(next) => next
+								Err(_) => crash "CompressFast.compress: freqs_litlen index out of bounds"
+							}
+							$in_next = $in_next.plus_wrap(1)
+						}
+					} else {
+					}
+
+					if $found_len != 0 {
+						length_slot = DeflateTables.length_slot($found_len)
+						offset_slot = DeflateTables.offset_slot($found_offset)
 						litlen_sym = DeflateTables.first_len_sym.plus_wrap(length_slot)
 						litlen_sym_count = (List.get($freqs_litlen, litlen_sym) ?? 0).plus_wrap(1)
 						$freqs_litlen = match List.set($freqs_litlen, litlen_sym, litlen_sym_count) {
@@ -116,25 +242,53 @@ CompressFast := [].{
 							Err(_) => crash "CompressFast.compress: freqs_offset index out of bounds"
 						}
 						$seqs = List.append($seqs, {
-							litrunlen_and_length: $in_next.minus_wrap($run_start).to_u32_wrap().bitwise_or(found.length.to_u32_wrap().shl_wrap(BlockOut.seq_length_shift)),
-							offset: found.offset.to_u16_wrap(),
+							litrunlen_and_length: $in_next.minus_wrap($run_start).to_u32_wrap().bitwise_or($found_len.to_u32_wrap().shl_wrap(BlockOut.seq_length_shift)),
+							offset: $found_offset.to_u16_wrap(),
 							offset_slot: offset_slot.to_u16_wrap(),
 						})
 
-						skipped = HtMatchfinder.skip_bytes($tab, $base, $nh, input, $in_next.plus_wrap(1), in_end, found.length.minus_wrap(1))
-						$tab = skipped.hash_tab
-						$base = skipped.in_cur_base
-						$nh = skipped.next_hash
-						$in_next = $in_next.plus_wrap(found.length)
+						# Insert the positions the match covers. A run that crosses a
+						# window slide or reaches the input's last bytes takes the general
+						# routine. Every other run is inserted here, where the table and
+						# hash are already at hand.
+						skip_end = $in_next.plus_wrap($found_len)
+						if in_end < 9
+							or in_end > List.len(input)
+							or skip_end.plus_wrap(HtMatchfinder.required_nbytes) > in_end
+							or skip_end.minus_wrap(1).minus_wrap($base) >= Matchfinder.window_size
+							or List.len($tab) < HtMatchfinder.table_size {
+							skipped = HtMatchfinder.skip_bytes($tab, $base, $nh, input, $in_next.plus_wrap(1), in_end, $found_len.minus_wrap(1))
+							$tab = skipped.hash_tab
+							$base = skipped.in_cur_base
+							$nh = skipped.next_hash
+						} else {
+							# The run ends at least five bytes before the input does. Taking
+							# the smaller of the two as the limit states that where the hash
+							# read below can use it.
+							skip_limit = skip_end.min(in_end - HtMatchfinder.required_nbytes)
+							var $skip_at = $in_next.plus_wrap(1)
+							# The node is carried already biased.
+							var $skip_node = $skip_at.minus_wrap($base).plus_wrap(Matchfinder.node_bias)
+							while $skip_at < skip_limit {
+								slot0 = $nh.bitwise_and(0x7FFF).times_wrap(2)
+								first = List.get($tab, slot0) ?? 0
+								$tab = match List.set($tab, slot0.plus_wrap(1), first) {
+									Ok(next) => next
+									Err(_) => crash "CompressFast.compress: tab index out of bounds"
+								}
+								$tab = match List.set($tab, slot0, $skip_node.to_u16_wrap()) {
+									Ok(next) => next
+									Err(_) => crash "CompressFast.compress: tab index out of bounds"
+								}
+								$skip_at = $skip_at.plus_wrap(1)
+								$skip_node = $skip_node.plus_wrap(1)
+								$nh = Matchfinder.lz_hash(U32.from_le_bytes(input, $skip_at) ?? 0, HtMatchfinder.hash_order)
+							}
+							$tab = List.prefetched($tab, $nh.times_wrap(2))
+						}
+						$in_next = skip_end
 						$run_start = $in_next
 					} else {
-						lit = (List.get(input, $in_next) ?? 0).to_u64()
-						lit_count = (List.get($freqs_litlen, lit) ?? 0).plus_wrap(1)
-						$freqs_litlen = match List.set($freqs_litlen, lit, lit_count) {
-							Ok(next) => next
-							Err(_) => crash "CompressFast.compress: freqs_litlen index out of bounds"
-						}
-						$in_next = $in_next.plus_wrap(1)
 					}
 
 					if $in_next >= in_max_block_end or List.len($seqs) >= CompressFast.fast_seq_store_length {
