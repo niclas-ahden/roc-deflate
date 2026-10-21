@@ -30,6 +30,12 @@ CompressLazy := [].{
 	num_observation_types : U64
 	num_observation_types = 10
 
+	## Where a block's new observation counts sit in the literal/length
+	## frequency list: just past the last index a length slot can produce. The
+	## per-literal path then updates one list rather than two.
+	new_observations_base : U64
+	new_observations_base = DeflateTables.first_len_sym + 256
+
 	observations_per_block_check : U64
 	observations_per_block_check = 512
 
@@ -140,15 +146,16 @@ CompressLazy := [].{
 	## grows with block length. Very short blocks pay a surcharge, since their
 	## header is a larger share of their cost. This only reads the counts. A
 	## caller that decides to continue the block folds them with
-	## `merge_observations` itself.
-	do_end_block_check : List(U32), List(U32), U64, U64, U64 -> U64
-	do_end_block_check = |new_observations, observations, num_new_observations, num_observations, block_length| {
+	## `merge_observations` itself. The new counts are read from `new_base` on
+	## in their list.
+	do_end_block_check : List(U32), U64, List(U32), U64, U64, U64 -> U64
+	do_end_block_check = |new_observations, new_base, observations, num_new_observations, num_observations, block_length| {
 		if num_observations > 0 {
 			var $total_delta = 0.U64
 			var $i = 0.U64
 			while $i < CompressLazy.num_observation_types {
 				expected = (List.get(observations, $i) ?? 0).to_u64() * num_new_observations
-				actual = (List.get(new_observations, $i) ?? 0).to_u64() * num_observations
+				actual = (List.get(new_observations, new_base + $i) ?? 0).to_u64() * num_observations
 				delta = if actual > expected { actual - expected } else { expected - actual }
 				$total_delta = $total_delta + delta
 				$i = $i + 1
@@ -176,18 +183,18 @@ CompressLazy := [].{
 		num_observations : U64,
 	}
 
-	merge_observations : List(U32), List(U32), U64, U64 -> MergedObservations
-	merge_observations = |new_observations_0, observations_0, num_new_observations, num_observations| {
+	merge_observations : List(U32), U64, List(U32), U64, U64 -> MergedObservations
+	merge_observations = |new_observations_0, new_base, observations_0, num_new_observations, num_observations| {
 		var $observations = observations_0
 		var $new_observations = new_observations_0
 		var $i = 0.U64
 		while $i < CompressLazy.num_observation_types {
-			merged = (List.get($observations, $i) ?? 0) + (List.get($new_observations, $i) ?? 0)
+			merged = (List.get($observations, $i) ?? 0) + (List.get($new_observations, new_base + $i) ?? 0)
 			$observations = match List.set($observations, $i, merged) {
 				Ok(next) => next
 				Err(_) => crash "CompressLazy.merge_observations: observations index out of bounds"
 			}
-			$new_observations = match List.set($new_observations, $i, 0) {
+			$new_observations = match List.set($new_observations, new_base + $i, 0) {
 				Ok(next) => next
 				Err(_) => crash "CompressLazy.merge_observations: new_observations index out of bounds"
 			}
@@ -298,14 +305,15 @@ CompressLazy := [].{
 				in_end,
 				CompressLazy.soft_max_block_length,
 			)
-			var $new_observations = List.repeat(0.U32, CompressLazy.num_observation_types)
 			var $observations = List.repeat(0.U32, CompressLazy.num_observation_types)
 			var $num_new_observations = 0.U64
 			var $num_observations = 0.U64
 			# Each list covers every index its slot lookup can produce, not just
 			# the alphabet: the length slot is a byte added to 257 and the offset
 			# slot is a byte plus 14, so the counts below need no bounds tests.
-			var $freqs_litlen = List.repeat(0.U32, DeflateTables.first_len_sym + 256)
+			# The literal/length list also holds the block's new observation
+			# counts, past those indices.
+			var $freqs_litlen = List.repeat(0.U32, CompressLazy.new_observations_base + CompressLazy.num_observation_types)
 			var $freqs_offset = List.repeat(0.U32, 256 + 14)
 			$seqs = List.clear($seqs)
 			# The tables hold all three regions for the whole block: the block's
@@ -542,10 +550,10 @@ CompressLazy := [].{
 							Err(_) => crash "CompressLazy.compress_greedy: freqs_litlen index out of bounds"
 						}
 						obs = lit.shr_zf_wrap(5).bitwise_and(0x6).bitwise_or(lit.bitwise_and(1))
-						obs_count = (List.get($new_observations, obs) ?? 0).plus_wrap(1)
-						$new_observations = match List.set($new_observations, obs, obs_count) {
+						obs_count = (List.get($freqs_litlen, CompressLazy.new_observations_base.plus_wrap(obs)) ?? 0).plus_wrap(1)
+						$freqs_litlen = match List.set($freqs_litlen, CompressLazy.new_observations_base.plus_wrap(obs), obs_count) {
 							Ok(next) => next
-							Err(_) => crash "CompressLazy.compress_greedy: new_observations index out of bounds"
+							Err(_) => crash "CompressLazy.compress_greedy: observation count index out of bounds"
 						}
 						$num_new_observations = $num_new_observations.plus_wrap(1)
 						$litrunlen = $litrunlen.plus_wrap(1)
@@ -582,10 +590,10 @@ CompressLazy := [].{
 						Err(_) => crash "CompressLazy.compress_greedy: freqs_offset index out of bounds"
 					}
 					obs = if $found.length >= 9 { 9 } else { 8 }
-					obs_count = (List.get($new_observations, obs) ?? 0).plus_wrap(1)
-					$new_observations = match List.set($new_observations, obs, obs_count) {
+					obs_count = (List.get($freqs_litlen, CompressLazy.new_observations_base.plus_wrap(obs)) ?? 0).plus_wrap(1)
+					$freqs_litlen = match List.set($freqs_litlen, CompressLazy.new_observations_base.plus_wrap(obs), obs_count) {
 						Ok(next) => next
-						Err(_) => crash "CompressLazy.compress_greedy: new_observations index out of bounds"
+						Err(_) => crash "CompressLazy.compress_greedy: observation count index out of bounds"
 					}
 					$num_new_observations = $num_new_observations.plus_wrap(1)
 					$seqs = List.append($seqs, {
@@ -656,11 +664,11 @@ CompressLazy := [].{
 				} else if $num_new_observations >= CompressLazy.observations_per_block_check
 					and $in_next.minus_wrap(in_block_begin) >= CompressLazy.min_block_length
 					and in_end.minus_wrap($in_next) >= CompressLazy.min_block_length {
-					if CompressLazy.do_end_block_check($new_observations, $observations, $num_new_observations, $num_observations, $in_next.minus_wrap(in_block_begin)) == 1 {
+					if CompressLazy.do_end_block_check($freqs_litlen, CompressLazy.new_observations_base, $observations, $num_new_observations, $num_observations, $in_next.minus_wrap(in_block_begin)) == 1 {
 						$in_block = 0
 					} else {
-						ms = CompressLazy.merge_observations($new_observations, $observations, $num_new_observations, $num_observations)
-						$new_observations = ms.new_observations
+						ms = CompressLazy.merge_observations($freqs_litlen, CompressLazy.new_observations_base, $observations, $num_new_observations, $num_observations)
+						$freqs_litlen = ms.new_observations
 						$observations = ms.observations
 						$num_new_observations = ms.num_new_observations
 						$num_observations = ms.num_observations
@@ -785,14 +793,15 @@ CompressLazy := [].{
 				CompressLazy.soft_max_block_length,
 			)
 			var $next_recalc_min_len = $in_next + (in_end - $in_next).min(10000)
-			var $new_observations = List.repeat(0.U32, CompressLazy.num_observation_types)
 			var $observations = List.repeat(0.U32, CompressLazy.num_observation_types)
 			var $num_new_observations = 0.U64
 			var $num_observations = 0.U64
 			# Each list covers every index its slot lookup can produce, not just
 			# the alphabet: the length slot is a byte added to 257 and the offset
 			# slot is a byte plus 14, so the counts below need no bounds tests.
-			var $freqs_litlen = List.repeat(0.U32, DeflateTables.first_len_sym + 256)
+			# The literal/length list also holds the block's new observation
+			# counts, past those indices.
+			var $freqs_litlen = List.repeat(0.U32, CompressLazy.new_observations_base + CompressLazy.num_observation_types)
 			var $freqs_offset = List.repeat(0.U32, 256 + 14)
 			$seqs = List.clear($seqs)
 			# The tables hold all three regions for the whole block: the block's
@@ -1028,10 +1037,10 @@ CompressLazy := [].{
 						Err(_) => crash "CompressLazy.compress: freqs_litlen index out of bounds"
 					}
 					obs = lit.shr_zf_wrap(5).bitwise_and(0x6).bitwise_or(lit.bitwise_and(1))
-					obs_count = (List.get($new_observations, obs) ?? 0).plus_wrap(1)
-					$new_observations = match List.set($new_observations, obs, obs_count) {
+					obs_count = (List.get($freqs_litlen, CompressLazy.new_observations_base.plus_wrap(obs)) ?? 0).plus_wrap(1)
+					$freqs_litlen = match List.set($freqs_litlen, CompressLazy.new_observations_base.plus_wrap(obs), obs_count) {
 						Ok(next) => next
-						Err(_) => crash "CompressLazy.compress: new_observations index out of bounds"
+						Err(_) => crash "CompressLazy.compress: observation count index out of bounds"
 					}
 					$num_new_observations = $num_new_observations.plus_wrap(1)
 					$litrunlen = $litrunlen.plus_wrap(1)
@@ -1260,10 +1269,10 @@ CompressLazy := [].{
 									Err(_) => crash "CompressLazy.compress: freqs_litlen index out of bounds"
 								}
 								obs = lit.shr_zf_wrap(5).bitwise_and(0x6).bitwise_or(lit.bitwise_and(1))
-								obs_count = (List.get($new_observations, obs) ?? 0).plus_wrap(1)
-								$new_observations = match List.set($new_observations, obs, obs_count) {
+								obs_count = (List.get($freqs_litlen, CompressLazy.new_observations_base.plus_wrap(obs)) ?? 0).plus_wrap(1)
+								$freqs_litlen = match List.set($freqs_litlen, CompressLazy.new_observations_base.plus_wrap(obs), obs_count) {
 									Ok(next) => next
-									Err(_) => crash "CompressLazy.compress: new_observations index out of bounds"
+									Err(_) => crash "CompressLazy.compress: observation count index out of bounds"
 								}
 								$num_new_observations = $num_new_observations.plus_wrap(1)
 								$litrunlen = $litrunlen.plus_wrap(1)
@@ -1476,10 +1485,10 @@ CompressLazy := [].{
 										Err(_) => crash "CompressLazy.compress: freqs_litlen index out of bounds"
 									}
 									obs_a = lit_a.shr_zf_wrap(5).bitwise_and(0x6).bitwise_or(lit_a.bitwise_and(1))
-									obs_a_count = (List.get($new_observations, obs_a) ?? 0).plus_wrap(1)
-									$new_observations = match List.set($new_observations, obs_a, obs_a_count) {
+									obs_a_count = (List.get($freqs_litlen, CompressLazy.new_observations_base.plus_wrap(obs_a)) ?? 0).plus_wrap(1)
+									$freqs_litlen = match List.set($freqs_litlen, CompressLazy.new_observations_base.plus_wrap(obs_a), obs_a_count) {
 										Ok(next) => next
-										Err(_) => crash "CompressLazy.compress: new_observations index out of bounds"
+										Err(_) => crash "CompressLazy.compress: observation count index out of bounds"
 									}
 									$num_new_observations = $num_new_observations.plus_wrap(1)
 									lit_b = (List.get(input, $in_next.minus_wrap(2)) ?? 0).to_u64()
@@ -1489,10 +1498,10 @@ CompressLazy := [].{
 										Err(_) => crash "CompressLazy.compress: freqs_litlen index out of bounds"
 									}
 									obs_b = lit_b.shr_zf_wrap(5).bitwise_and(0x6).bitwise_or(lit_b.bitwise_and(1))
-									obs_b_count = (List.get($new_observations, obs_b) ?? 0).plus_wrap(1)
-									$new_observations = match List.set($new_observations, obs_b, obs_b_count) {
+									obs_b_count = (List.get($freqs_litlen, CompressLazy.new_observations_base.plus_wrap(obs_b)) ?? 0).plus_wrap(1)
+									$freqs_litlen = match List.set($freqs_litlen, CompressLazy.new_observations_base.plus_wrap(obs_b), obs_b_count) {
 										Ok(next) => next
-										Err(_) => crash "CompressLazy.compress: new_observations index out of bounds"
+										Err(_) => crash "CompressLazy.compress: observation count index out of bounds"
 									}
 									$num_new_observations = $num_new_observations.plus_wrap(1)
 									$litrunlen = $litrunlen.plus_wrap(2)
@@ -1523,10 +1532,10 @@ CompressLazy := [].{
 								Err(_) => crash "CompressLazy.compress: freqs_offset index out of bounds"
 							}
 							obs = if $cur_len >= 9 { 9 } else { 8 }
-							obs_count = (List.get($new_observations, obs) ?? 0).plus_wrap(1)
-							$new_observations = match List.set($new_observations, obs, obs_count) {
+							obs_count = (List.get($freqs_litlen, CompressLazy.new_observations_base.plus_wrap(obs)) ?? 0).plus_wrap(1)
+							$freqs_litlen = match List.set($freqs_litlen, CompressLazy.new_observations_base.plus_wrap(obs), obs_count) {
 								Ok(next) => next
-								Err(_) => crash "CompressLazy.compress: new_observations index out of bounds"
+								Err(_) => crash "CompressLazy.compress: observation count index out of bounds"
 							}
 							$num_new_observations = $num_new_observations.plus_wrap(1)
 							$seqs = List.append($seqs, {
@@ -1598,11 +1607,11 @@ CompressLazy := [].{
 				} else if $num_new_observations >= CompressLazy.observations_per_block_check
 					and $in_next.minus_wrap(in_block_begin) >= CompressLazy.min_block_length
 					and in_end.minus_wrap($in_next) >= CompressLazy.min_block_length {
-					if CompressLazy.do_end_block_check($new_observations, $observations, $num_new_observations, $num_observations, $in_next.minus_wrap(in_block_begin)) == 1 {
+					if CompressLazy.do_end_block_check($freqs_litlen, CompressLazy.new_observations_base, $observations, $num_new_observations, $num_observations, $in_next.minus_wrap(in_block_begin)) == 1 {
 						$in_block = 0
 					} else {
-						ms = CompressLazy.merge_observations($new_observations, $observations, $num_new_observations, $num_observations)
-						$new_observations = ms.new_observations
+						ms = CompressLazy.merge_observations($freqs_litlen, CompressLazy.new_observations_base, $observations, $num_new_observations, $num_observations)
+						$freqs_litlen = ms.new_observations
 						$observations = ms.observations
 						$num_new_observations = ms.num_new_observations
 						$num_observations = ms.num_observations

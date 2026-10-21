@@ -930,11 +930,11 @@ CompressOptimal := [].{
 				} else if $num_new_observations >= CompressLazy.observations_per_block_check
 					and $in_next.minus_wrap($in_block_begin) >= CompressLazy.min_block_length
 					and in_end.minus_wrap($in_next) >= CompressLazy.min_block_length {
-					if CompressLazy.do_end_block_check($new_observations, $observations, $num_new_observations, $num_observations, $in_next.minus_wrap($in_block_begin)) == 1 {
+					if CompressLazy.do_end_block_check($new_observations, 0, $observations, $num_new_observations, $num_observations, $in_next.minus_wrap($in_block_begin)) == 1 {
 						$change_detected = 1
 						$in_block = 0
 					} else {
-						ms = CompressLazy.merge_observations($new_observations, $observations, $num_new_observations, $num_observations)
+						ms = CompressLazy.merge_observations($new_observations, 0, $observations, $num_new_observations, $num_observations)
 						$new_observations = ms.new_observations
 						$observations = ms.observations
 						$num_new_observations = ms.num_new_observations
@@ -973,7 +973,7 @@ CompressOptimal := [].{
 				merged = CompressOptimal.merge_match_len_freqs($match_len_freqs, $new_match_len_freqs)
 				$match_len_freqs = merged.total
 				$new_match_len_freqs = merged.fresh
-				ms = CompressLazy.merge_observations($new_observations, $observations, $num_new_observations, $num_observations)
+				ms = CompressLazy.merge_observations($new_observations, 0, $observations, $num_new_observations, $num_observations)
 				$new_observations = ms.new_observations
 				$observations = ms.observations
 				$num_new_observations = ms.num_new_observations
