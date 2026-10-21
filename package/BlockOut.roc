@@ -344,28 +344,37 @@ BlockOut := [].{
 		}
 	}
 
+	## The sequence writer's three packed tables share one list, so its loop
+	## keeps one table pointer live instead of three: the literal/length
+	## codes first, then each match length's full codeword from
+	## `packed_full_base`, then the offset slots from `packed_offset_base`.
+	## A match's length field is nine bits and its offset slot is masked to
+	## five, so the regions are sized to cover those fields.
+	packed_full_base : U64
+	packed_full_base = DeflateTables.num_litlen_syms
+
+	packed_offset_base : U64
+	packed_offset_base = BlockOut.packed_full_base + 512
+
+	packed_size : U64
+	packed_size = BlockOut.packed_offset_base + 32
+
 	## Write a block's sequences: each literal run, then its match. This is its
 	## own function so the per-symbol loop keeps the bit buffer, the cursor, and
-	## the tables in registers.
-	write_sequences : List(U8), U64, U64, List(U8), U64, List(BlockOut.Sequence), List(U64), List(U64), List(U64) -> { out : List(U8), bitbuf : U64, bitcount : U64 }
-	write_sequences = |out_0, bitbuf_0, bitcount_0, input, in_next_0, seqs, packed_litlen, packed_full, packed_offset| {
+	## the table in registers.
+	write_sequences : List(U8), U64, U64, List(U8), U64, List(BlockOut.Sequence), List(U64) -> { out : List(U8), bitbuf : U64, bitcount : U64 }
+	write_sequences = |out_0, bitbuf_0, bitcount_0, input, in_next_0, seqs, packed| {
 		var $out = out_0
 		var $bitbuf = bitbuf_0
 		var $bitcount = bitcount_0
 		var $in_next = in_next_0
-		# A literal indexes the packed table by its byte, so establishing
-		# the table's length once here lets the bounds test on every
-		# literal's lookup fold away instead of running per symbol.
-		if List.len(packed_litlen) < DeflateTables.num_literals {
-			crash "BlockOut.write_sequences: packed literal table too short"
-		} else {
-		}
-		# A match's length field is nine bits and its offset slot is masked
-		# to five below, so tables of those sizes make both lookups in bounds
-		# by construction. The flush below writes `bitcount / 8` bytes with the
-		# count masked to its three bits, which the append's limit covers.
-		if List.len(packed_full) < 512 or List.len(packed_offset) < 32 {
-			crash "BlockOut.write_sequences: packed match tables too short"
+		# Every lookup indexes a region by a byte or by a masked field, so
+		# establishing the table's length once here lets each lookup's bounds
+		# test fold away instead of running per symbol. The flush below writes
+		# `bitcount / 8` bytes with the count masked to its three bits, which
+		# the append's limit covers.
+		if List.len(packed) < BlockOut.packed_size {
+			crash "BlockOut.write_sequences: packed tables too short"
 		} else {
 		}
 
@@ -374,9 +383,11 @@ BlockOut := [].{
 		# passes the block's end, and the sequence index never passes the
 		# store's length, so a checked add here would only put an
 		# overflow branch on every symbol.
+		# The run terminator, whose length is zero, is always the store's last
+		# sequence, so walking the whole store writes exactly the block, and
+		# the loop's own bound proves each sequence read in bounds.
 		var $seq_idx = 0.U64
-		var $writing = True
-		while $writing {
+		while $seq_idx < List.len(seqs) {
 			seq = List.get(seqs, $seq_idx) ?? { litrunlen_and_length: 0, offset: 0, offset_slot: 0 }
 			var $litrunlen = seq.litrunlen_and_length.bitwise_and(BlockOut.seq_litrunlen_mask).to_u64()
 			length = seq.litrunlen_and_length.shr_zf_wrap(BlockOut.seq_length_shift).to_u64()
@@ -389,19 +400,19 @@ BlockOut := [].{
 				# read is in bounds, and one bounds test replaces four.
 				word = U32.from_le_bytes(input, $in_next) ?? 0
 				lit0 = word.bitwise_and(0xFF).to_u64()
-				packed0 = List.get(packed_litlen, lit0) ?? 0
+				packed0 = List.get(packed, lit0) ?? 0
 				$bitbuf = $bitbuf.bitwise_or(packed0.bitwise_and(0xFFFF_FFFF).shl_wrap($bitcount.to_u8_wrap()))
 				$bitcount = $bitcount.plus_wrap(packed0.shr_zf_wrap(32))
 				lit1 = word.shr_zf_wrap(8).bitwise_and(0xFF).to_u64()
-				packed1 = List.get(packed_litlen, lit1) ?? 0
+				packed1 = List.get(packed, lit1) ?? 0
 				$bitbuf = $bitbuf.bitwise_or(packed1.bitwise_and(0xFFFF_FFFF).shl_wrap($bitcount.to_u8_wrap()))
 				$bitcount = $bitcount.plus_wrap(packed1.shr_zf_wrap(32))
 				lit2 = word.shr_zf_wrap(16).bitwise_and(0xFF).to_u64()
-				packed2 = List.get(packed_litlen, lit2) ?? 0
+				packed2 = List.get(packed, lit2) ?? 0
 				$bitbuf = $bitbuf.bitwise_or(packed2.bitwise_and(0xFFFF_FFFF).shl_wrap($bitcount.to_u8_wrap()))
 				$bitcount = $bitcount.plus_wrap(packed2.shr_zf_wrap(32))
 				lit3 = word.shr_zf_wrap(24).to_u64()
-				packed3 = List.get(packed_litlen, lit3) ?? 0
+				packed3 = List.get(packed, lit3) ?? 0
 				$bitbuf = $bitbuf.bitwise_or(packed3.bitwise_and(0xFFFF_FFFF).shl_wrap($bitcount.to_u8_wrap()))
 				$bitcount = $bitcount.plus_wrap(packed3.shr_zf_wrap(32))
 				$in_next = $in_next.plus_wrap(4)
@@ -416,19 +427,19 @@ BlockOut := [].{
 			}
 			if $litrunlen != 0 {
 				lit0 = (List.get(input, $in_next) ?? 0).to_u64()
-				packed0 = List.get(packed_litlen, lit0) ?? 0
+				packed0 = List.get(packed, lit0) ?? 0
 				$bitbuf = $bitbuf.bitwise_or(packed0.bitwise_and(0xFFFF_FFFF).shl_wrap($bitcount.to_u8_wrap()))
 				$bitcount = $bitcount.plus_wrap(packed0.shr_zf_wrap(32))
 				$in_next = $in_next.plus_wrap(1)
 				if $litrunlen >= 2 {
 					lit1 = (List.get(input, $in_next) ?? 0).to_u64()
-					packed1 = List.get(packed_litlen, lit1) ?? 0
+					packed1 = List.get(packed, lit1) ?? 0
 					$bitbuf = $bitbuf.bitwise_or(packed1.bitwise_and(0xFFFF_FFFF).shl_wrap($bitcount.to_u8_wrap()))
 					$bitcount = $bitcount.plus_wrap(packed1.shr_zf_wrap(32))
 					$in_next = $in_next.plus_wrap(1)
 					if $litrunlen >= 3 {
 						lit2 = (List.get(input, $in_next) ?? 0).to_u64()
-						packed2 = List.get(packed_litlen, lit2) ?? 0
+						packed2 = List.get(packed, lit2) ?? 0
 						$bitbuf = $bitbuf.bitwise_or(packed2.bitwise_and(0xFFFF_FFFF).shl_wrap($bitcount.to_u8_wrap()))
 						$bitcount = $bitcount.plus_wrap(packed2.shr_zf_wrap(32))
 						$in_next = $in_next.plus_wrap(1)
@@ -446,18 +457,16 @@ BlockOut := [].{
 			} else {
 			}
 
-			if length == 0 {
-				$writing = False
-			} else {
+			if length != 0 {
 				# A whole match fits between flushes as well: the length
 				# codeword with its extra bits, the offset codeword, and the
 				# extra offset bits come to at most 47 bits.
 				offset = seq.offset.to_u64()
 				offset_slot = seq.offset_slot.to_u64().bitwise_and(31)
-				packed_len = List.get(packed_full, length) ?? 0
+				packed_len = List.get(packed, BlockOut.packed_full_base.plus_wrap(length)) ?? 0
 				$bitbuf = $bitbuf.bitwise_or(packed_len.bitwise_and(0xFFFF_FFFF).shl_wrap($bitcount.to_u8_wrap()))
 				$bitcount = $bitcount.plus_wrap(packed_len.shr_zf_wrap(32))
-				packed_off = List.get(packed_offset, offset_slot) ?? 0
+				packed_off = List.get(packed, BlockOut.packed_offset_base.plus_wrap(offset_slot)) ?? 0
 				$bitbuf = $bitbuf.bitwise_or(packed_off.bitwise_and(0xFFFF).shl_wrap($bitcount.to_u8_wrap()))
 				$bitcount = $bitcount.plus_wrap(packed_off.shr_zf_wrap(16).bitwise_and(0xFF))
 				$bitbuf = $bitbuf.bitwise_or(offset.minus_wrap(packed_off.shr_zf_wrap(32)).shl_wrap($bitcount.to_u8_wrap()))
@@ -470,8 +479,9 @@ BlockOut := [].{
 				$bitbuf = $bitbuf.shr_zf_wrap(n.shl_wrap(3).to_u8_wrap())
 				$bitcount = $bitcount.bitwise_and(7)
 				$in_next = $in_next.plus_wrap(length)
-				$seq_idx = $seq_idx.plus_wrap(1)
+			} else {
 			}
+			$seq_idx = $seq_idx.plus_wrap(1)
 		}
 
 		{ out: $out, bitbuf: $bitbuf, bitcount: $bitcount }
@@ -737,10 +747,10 @@ BlockOut := [].{
 
 			if use_items == 0 {
 				# Only the sequence writer reads the packed tables.
-				packed_litlen = BlockOut.pack_codes(w_litlen_codewords, w_litlen_lens)
-				packed_full = BlockOut.pad_packed(BlockOut.pack_codes(full_codewords, full_lens), 512)
-				packed_offset = BlockOut.pad_packed(BlockOut.pack_offsets(w_offset_codewords, w_offset_lens), 32)
-				written = BlockOut.write_sequences($out, $bitbuf, $bitcount, input, $in_next, seqs, packed_litlen, packed_full, packed_offset)
+				packed = BlockOut.pad_packed(BlockOut.pack_codes(w_litlen_codewords, w_litlen_lens), BlockOut.packed_full_base)
+					.concat(BlockOut.pad_packed(BlockOut.pack_codes(full_codewords, full_lens), 512))
+					.concat(BlockOut.pad_packed(BlockOut.pack_offsets(w_offset_codewords, w_offset_lens), 32))
+				written = BlockOut.write_sequences($out, $bitbuf, $bitcount, input, $in_next, seqs, packed)
 				$out = written.out
 				$bitbuf = written.bitbuf
 				$bitcount = written.bitcount
