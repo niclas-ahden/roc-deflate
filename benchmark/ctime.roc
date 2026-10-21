@@ -12,8 +12,9 @@ import deflate.Deflate
 # usage: ctime <original> <level> <reps> <out.deflate>
 #
 # Verifies the compressed stream decompresses back to the input, writes it out
-# so it can be compared against libdeflate's, then times the repetitions and
-# prints:  roc\t<min_ns>\t<mbps>\t<compressed_size>
+# so it can be compared against libdeflate's, then times the repetitions, each
+# compressing into one reused output buffer, and prints:
+# roc\t<min_ns>\t<mbps>\t<compressed_size>
 main! = |args| {
 	path_os = List.get(args, 0) ? |_| Exit(1)
 	level_os = List.get(args, 1) ? |_| Exit(2)
@@ -38,9 +39,15 @@ main! = |args| {
 	var $best = 0.U128
 	var $total = 0.U64
 	var $r = 0.U64
+	# One output buffer for every repetition, as cbench reuses one: it is
+	# emptied outside the timed region, keeping its capacity, and compressed
+	# into, so its memory is reused rather than fetched again each time.
+	var $buf = List.with_capacity(Deflate.compress_bound(in_len))
 	while $r < reps {
+		buf0 = List.clear($buf)
 		t0 = Monotonic.now!()
-		sz = List.len(Deflate.compress(data, level))
+		$buf = Deflate.compress_into(data, level, buf0)
+		sz = List.len($buf)
 		dt = Monotonic.now!().since(t0).to_nanos().to_u128()
 		$total = $total + sz
 		if $r == 0 or dt < $best {

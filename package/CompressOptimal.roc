@@ -685,8 +685,8 @@ CompressOptimal := [].{
 	}
 
 	## Compress with the near-optimal parser.
-	compress : List(U8), Params -> List(U8)
-	compress = |input, params| {
+	compress : List(U8), Params, List(U8) -> List(U8)
+	compress = |input, params, out| {
 		in_end = List.len(input)
 		static = CompressLazy.build_static_codes(0)
 		var $s_litlen_lens = static.litlen_lens
@@ -694,7 +694,9 @@ CompressOptimal := [].{
 		var $s_offset_lens = static.offset_lens
 		var $s_offset_codewords = static.offset_codewords
 
-		var $out = List.with_capacity(5 * ((in_end + CompressLazy.min_block_length - 1) // CompressLazy.min_block_length).max(1) + in_end)
+		# The stream is appended to what `out` holds, after reserving the most
+		# it can take, so a reused buffer never grows mid-stream.
+		var $out = List.reserve(out, 5 * ((in_end + CompressLazy.min_block_length - 1) // CompressLazy.min_block_length).max(1) + in_end)
 		var $bitbuf = 0.U64
 		var $bitcount = 0.U64
 

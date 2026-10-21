@@ -22,8 +22,8 @@ CompressFast := [].{
 	fast_seq_store_length : U64
 	fast_seq_store_length = 8192
 
-	compress : List(U8), U64 -> List(U8)
-	compress = |input, nice_match_length| {
+	compress : List(U8), U64, List(U8) -> List(U8)
+	compress = |input, nice_match_length, out| {
 		in_end = List.len(input)
 		# Positions before this one have a full-length match in reach, so the
 		# search there needs no shortening.
@@ -34,7 +34,9 @@ CompressFast := [].{
 		var $s_offset_lens = static.offset_lens
 		var $s_offset_codewords = static.offset_codewords
 
-		var $out = List.with_capacity(5 * ((in_end + CompressLazy.min_block_length - 1) // CompressLazy.min_block_length).max(1) + in_end)
+		# The stream is appended to what `out` holds, after reserving the most
+		# it can take, so a reused buffer never grows mid-stream.
+		var $out = List.reserve(out, 5 * ((in_end + CompressLazy.min_block_length - 1) // CompressLazy.min_block_length).max(1) + in_end)
 		var $bitbuf = 0.U64
 		var $bitcount = 0.U64
 		var $in_next = 0.U64
