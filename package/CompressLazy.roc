@@ -628,6 +628,41 @@ CompressLazy := [].{
 						# The node is carried already biased. The bias is one window, so masking
 						# the biased node gives the position's chain slot as well.
 						var $skip_node = $skip_at.minus_wrap($base).plus_wrap(Matchfinder.node_bias)
+						# Inside an offset-one match every four-byte prefix has
+						# the same hashes. Link its consecutive positions directly
+						# and publish the final heads once. The last three prefixes
+						# can cross the match boundary, so insert those normally.
+						if $found.offset == 1 and $found.length >= 8 {
+							repeat_end = skip_limit.minus_wrap(3)
+							repeat_limit = repeat_end.minus_wrap($base)
+							if repeat_limit > Matchfinder.window_size {
+								crash "CompressLazy.compress_greedy: repeat crosses window"
+							} else {
+							}
+							var $repeat_slot = $skip_node.bitwise_and(32767)
+							while $repeat_slot < repeat_limit {
+								$mf = match List.set($mf, HcMatchfinder.greedy_layout.next_base.plus_wrap($repeat_slot), $repeat_slot.plus_wrap(32767).to_u16_wrap()) {
+									Ok(next) => next
+									Err(_) => crash "CompressLazy.compress_greedy: repeat chain index out of bounds"
+								}
+								$repeat_slot = $repeat_slot.plus_wrap(1)
+							}
+							$skip_at = repeat_end
+							$skip_node = repeat_limit.plus_wrap(Matchfinder.node_bias)
+							last_node = $skip_node.minus_wrap(1).to_u16_wrap()
+							$mf = match List.set($mf, HcMatchfinder.greedy_layout.hash3_base.plus_wrap($nh3), last_node) {
+								Ok(next) => next
+								Err(_) => crash "CompressLazy.compress_greedy: repeat hash3 index out of bounds"
+							}
+							$mf = match List.set($mf, HcMatchfinder.greedy_layout.hash4_base.plus_wrap($nh4), last_node) {
+								Ok(next) => next
+								Err(_) => crash "CompressLazy.compress_greedy: repeat hash4 index out of bounds"
+							}
+							repeat_next = U32.from_le_bytes(input, $skip_at) ?? 0
+							$nh3 = Matchfinder.lz_hash(repeat_next.bitwise_and(0xFFFFFF), HcMatchfinder.hash3_order)
+							$nh4 = Matchfinder.lz_hash(repeat_next, HcMatchfinder.hash4_order)
+						} else {
+						}
 						while $skip_at < skip_limit {
 							skip_node = $skip_node.to_u16_wrap()
 							prev_head = List.get($mf, HcMatchfinder.greedy_layout.hash4_base.plus_wrap($nh4)) ?? 0
