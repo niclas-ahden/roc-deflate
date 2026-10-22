@@ -2,6 +2,7 @@
 #include "roc_platform_abi.h"
 #include "mimalloc.h"
 
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -72,8 +73,18 @@ void roc_crashed(const uint8_t *bytes, size_t length) {
     exit(1);
 }
 
-int main(void) {
-    roc_main();
+int main(int argc, char **argv) {
+    uint64_t argument = 0;
+    if (argc > 2) fail("expected at most one unsigned integer argument");
+    if (argc == 2) {
+        char *end;
+        errno = 0;
+        unsigned long long value = strtoull(argv[1], &end, 10);
+        if (errno || !argv[1][0] || *end || argv[1][0] == '-')
+            fail("invalid unsigned integer argument");
+        argument = (uint64_t)value;
+    }
+    roc_main(argument);
     if (fflush(stdout) == EOF) fail("stdout flush failed");
     return 0;
 }

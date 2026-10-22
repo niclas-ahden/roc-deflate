@@ -1,6 +1,6 @@
 platform "echo-clock"
 	requires {
-		main! : () => {}
+		main! : U64 => {}
 	}
 	exposes [Host]
 	packages {}
@@ -17,5 +17,5 @@ platform "echo-clock"
 
 import Host
 
-main_for_host! : () => {}
+main_for_host! : U64 => {}
 main_for_host! = main!

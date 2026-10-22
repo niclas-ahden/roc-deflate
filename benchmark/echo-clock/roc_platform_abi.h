@@ -225,7 +225,7 @@ extern uint64_t roc_now(void);
 // Provided Symbols
 
 /* Entrypoint: main_for_host! */
-extern void roc_main(void);
+extern void roc_main(uint64_t arg0);
 
 
 // HostedFunctions Registry

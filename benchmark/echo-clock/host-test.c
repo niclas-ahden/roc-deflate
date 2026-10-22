@@ -13,7 +13,7 @@ static void counted_free(void *ptr) { frees++; mi_free(ptr); }
 #undef main
 #undef mi_free
 
-void roc_main(void) {}
+void roc_main(uint64_t argument) { (void)argument; }
 
 int main(void) {
     for (size_t alignment = 1; alignment <= 256; alignment *= 2) {
