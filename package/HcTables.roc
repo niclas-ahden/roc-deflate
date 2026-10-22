@@ -1,8 +1,14 @@
 import Matchfinder
 import HcMatchfinder
 
-## Separate regions let the greedy parser address each table directly.
-HcGreedyMatchfinder := [].{
+## Hash-chain tables and insertion of positions skipped by a match.
+## The greedy and lazy parsers share this layout: length-3 hash heads,
+## length-4 hash heads, and window-sized chain links, all stored as U16.
+## The search loops live in CompressLazy so their bounds remain visible
+## alongside the surrounding parser state. Keep the four copies of
+## libdeflate's hc_matchfinder_longest_match consistent: the greedy search
+## and the lazy parser's three searches.
+HcTables := [].{
 	State : {
 		head3 : List(U16),
 		head4 : List(U16),
@@ -14,6 +20,7 @@ HcGreedyMatchfinder := [].{
 
 	skip_bytes : List(U16), List(U16), List(U16), U64, U64, U64, List(U8), U64, U64, U64 -> Try(State, [])
 	skip_bytes = |head3_0, head4_0, chain_0, base_0, nh3_0, nh4_0, input, in_next0, in_end, count| {
+		# Include the lookahead used to hash the following position.
 		end = in_next0.plus_wrap(count)
 		if end.plus_wrap(5) > in_end or in_end > List.len(input) {
 			Ok({ head3: head3_0, head4: head4_0, chain: chain_0, in_cur_base: base_0, next_hash3: nh3_0, next_hash4: nh4_0 })
@@ -23,6 +30,7 @@ HcGreedyMatchfinder := [].{
 			var $chain = chain_0
 			var $base = base_0
 			var $cur_pos = in_next0.minus_wrap(base_0).to_i64_wrap()
+			# A match is shorter than the window, so at most one slide is needed.
 			if $cur_pos.plus_wrap(count.to_i64_wrap()).minus_wrap(1) >= Matchfinder.window_size.to_i64_wrap() {
 				$head3 = Matchfinder.rebase_nodes($head3)
 				$head4 = Matchfinder.rebase_nodes($head4)
@@ -30,12 +38,13 @@ HcGreedyMatchfinder := [].{
 				$base = $base.plus_wrap(Matchfinder.window_size)
 				$cur_pos = $cur_pos.minus_wrap(Matchfinder.window_size.to_i64_wrap())
 			} else {}
+			# Establish table and initial hash bounds once, before the byte loop.
 			if List.len($head3) < HcMatchfinder.hash3_size
 				or List.len($head4) < HcMatchfinder.hash4_size
 				or List.len($chain) < Matchfinder.window_size
 				or nh3_0 >= HcMatchfinder.hash3_size
 				or nh4_0 >= HcMatchfinder.hash4_size {
-				crash "HcGreedyMatchfinder.skip_bytes: invalid tables or hash"
+				crash "HcTables.skip_bytes: invalid tables or hash"
 			} else {}
 			var $in_next = in_next0
 			var $hash3 = nh3_0
