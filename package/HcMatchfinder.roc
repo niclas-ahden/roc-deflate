@@ -38,19 +38,26 @@ HcMatchfinder := [].{
 	hash4_size : U64
 	hash4_size = 65536
 
-	## The three tables live in one list: the length-4 heads first, then the
-	## chain links (one window long), then the length-3 heads. Putting the
-	## length-4 heads at offset zero lets the insertion loop load and store
-	## them with one scaled-index address, without a separate region offset.
-	## One allocation also keeps the tables unique across calls and loops.
+	## The lazy parser keeps the chain links first, since its deeper searches
+	## repeatedly follow them. The greedy parser instead puts the length-4
+	## heads first to save address calculations while inserting skipped bytes.
+	## Both layouts keep all three tables in one unique allocation.
+	Layout : { next_base : U64, hash3_base : U64, hash4_base : U64 }
+
+	default_layout : Layout
+	default_layout = { next_base: 0, hash3_base: 32768, hash4_base: 65536 }
+
+	greedy_layout : Layout
+	greedy_layout = { next_base: 98304, hash3_base: 65536, hash4_base: 0 }
+
 	next_base : U64
-	next_base = 65536
+	next_base = 0
 
 	hash3_base : U64
-	hash3_base = 98304
+	hash3_base = 32768
 
 	hash4_base : U64
-	hash4_base = 0
+	hash4_base = 65536
 
 	table_size : U64
 	table_size = 131072
@@ -71,8 +78,8 @@ HcMatchfinder := [].{
 	## The result comes back in a `Try` that cannot fail. The compiler at
 	## roc-lang/roc 66c32df makes the lazy levels a few percent slower when
 	## this returns the bare record instead, though the work is the same.
-	skip_bytes : List(U16), U64, U64, U64, List(U8), U64, U64, U64 -> Try(State, [])
-	skip_bytes = |tab_0, base_0, nh3_0, nh4_0, input, in_next0, in_end, count| {
+	skip_bytes : List(U16), U64, U64, U64, List(U8), U64, U64, U64, Layout -> Try(State, [])
+	skip_bytes = |tab_0, base_0, nh3_0, nh4_0, input, in_next0, in_end, count, layout| {
 		# The run and the four bytes hashed past it stay inside the input.
 		# Stated against the input's own length, that lets the hash read on
 		# every skipped byte drop its bounds test.
@@ -115,9 +122,9 @@ HcMatchfinder := [].{
 			var $hash4 = nh4_0
 			while $in_next < end {
 				pos = $cur_pos.plus_wrap(Matchfinder.node_bias.to_i64_wrap()).to_u16_wrap()
-				slot = HcMatchfinder.next_base.plus_wrap($cur_pos.to_u64_wrap().bitwise_and(32767))
-				prev_head = List.get($tab, HcMatchfinder.hash4_base.plus_wrap($hash4)) ?? 0
-				tab1 = match List.set($tab, HcMatchfinder.hash3_base.plus_wrap($hash3), pos) {
+				slot = layout.next_base.plus_wrap($cur_pos.to_u64_wrap().bitwise_and(32767))
+				prev_head = List.get($tab, layout.hash4_base.plus_wrap($hash4)) ?? 0
+				tab1 = match List.set($tab, layout.hash3_base.plus_wrap($hash3), pos) {
 					Ok(next) => next
 					Err(_) => crash "HcMatchfinder.skip_bytes: tab index out of bounds"
 				}
@@ -125,7 +132,7 @@ HcMatchfinder := [].{
 					Ok(next) => next
 					Err(_) => crash "HcMatchfinder.skip_bytes: tab1 index out of bounds"
 				}
-				$tab = match List.set(tab2, HcMatchfinder.hash4_base.plus_wrap($hash4), pos) {
+				$tab = match List.set(tab2, layout.hash4_base.plus_wrap($hash4), pos) {
 					Ok(next) => next
 					Err(_) => crash "HcMatchfinder.skip_bytes: tab2 index out of bounds"
 				}

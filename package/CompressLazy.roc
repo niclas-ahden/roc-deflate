@@ -380,8 +380,8 @@ CompressLazy := [].{
 						# position is within one window of the base, so these masks change
 						# nothing. They state those bounds where the table accesses can
 						# use them, which a hash carried round the loop cannot.
-						slot3 = HcMatchfinder.hash3_base.plus_wrap($nh3.bitwise_and(32767))
-						slot4 = HcMatchfinder.hash4_base.plus_wrap($nh4.bitwise_and(65535))
+						slot3 = HcMatchfinder.greedy_layout.hash3_base.plus_wrap($nh3.bitwise_and(32767))
+						slot4 = HcMatchfinder.greedy_layout.hash4_base.plus_wrap($nh4.bitwise_and(65535))
 						cur_node3 = List.get($mf, slot3) ?? 0
 						cur_node4 = List.get($mf, slot4) ?? 0
 						pos = (cur_pos.plus_wrap(Matchfinder.node_bias)).to_u16_wrap()
@@ -393,7 +393,7 @@ CompressLazy := [].{
 							Ok(next) => next
 							Err(_) => crash "CompressLazy.compress_greedy: mf index out of bounds"
 						}
-						$mf = match List.set($mf, HcMatchfinder.next_base.plus_wrap(cur_pos.bitwise_and(32767)), cur_node4) {
+						$mf = match List.set($mf, HcMatchfinder.greedy_layout.next_base.plus_wrap(cur_pos.bitwise_and(32767)), cur_node4) {
 							Ok(next) => next
 							Err(_) => crash "CompressLazy.compress_greedy: mf index out of bounds"
 						}
@@ -402,8 +402,8 @@ CompressLazy := [].{
 						$nh4 = Matchfinder.lz_hash(next_hashseq, HcMatchfinder.hash4_order)
 						# Both buckets the next position reads are known now, a whole search
 						# before they are needed, so start bringing them into the cache.
-						$mf = List.prefetched($mf, HcMatchfinder.hash3_base.plus_wrap($nh3))
-						$mf = List.prefetched($mf, HcMatchfinder.hash4_base.plus_wrap($nh4))
+						$mf = List.prefetched($mf, HcMatchfinder.greedy_layout.hash3_base.plus_wrap($nh3))
+						$mf = List.prefetched($mf, HcMatchfinder.greedy_layout.hash4_base.plus_wrap($nh4))
 						# The hash-chain search, one of the four copies of libdeflate's
 						# `hc_matchfinder_longest_match` (see HcMatchfinder), written out here
 						# rather than called: it is the greedy loop's whole body, and as a call
@@ -449,7 +449,7 @@ CompressLazy := [].{
 											break
 										} else {
 										}
-										$node4 = List.get($mf, HcMatchfinder.next_base.plus_wrap($node4.to_u64().bitwise_and(32767))) ?? 0
+										$node4 = List.get($mf, HcMatchfinder.greedy_layout.next_base.plus_wrap($node4.to_u64().bitwise_and(32767))) ?? 0
 										$depth = $depth.minus_wrap(1)
 										if $node4.to_u64() <= cur_pos or $depth == 0 {
 											$done = 1
@@ -464,7 +464,7 @@ CompressLazy := [].{
 										if $best_len >= $nice_len {
 											$done = 1
 										} else {
-											$node4 = List.get($mf, HcMatchfinder.next_base.plus_wrap($node4.to_u64().bitwise_and(32767))) ?? 0
+											$node4 = List.get($mf, HcMatchfinder.greedy_layout.next_base.plus_wrap($node4.to_u64().bitwise_and(32767))) ?? 0
 											$depth = $depth.minus_wrap(1)
 											if $node4.to_u64() <= cur_pos or $depth == 0 {
 												$done = 1
@@ -501,7 +501,7 @@ CompressLazy := [].{
 									break
 								} else {
 								}
-								$node4 = List.get($mf, HcMatchfinder.next_base.plus_wrap($node4.to_u64().bitwise_and(32767))) ?? 0
+								$node4 = List.get($mf, HcMatchfinder.greedy_layout.next_base.plus_wrap($node4.to_u64().bitwise_and(32767))) ?? 0
 								$depth = $depth.minus_wrap(1)
 								if $node4.to_u64() <= cur_pos or $depth == 0 {
 									$done = 1
@@ -522,7 +522,7 @@ CompressLazy := [].{
 								} else {
 								}
 								if $done == 0 {
-									$node4 = List.get($mf, HcMatchfinder.next_base.plus_wrap($node4.to_u64().bitwise_and(32767))) ?? 0
+									$node4 = List.get($mf, HcMatchfinder.greedy_layout.next_base.plus_wrap($node4.to_u64().bitwise_and(32767))) ?? 0
 									$depth = $depth.minus_wrap(1)
 									if $node4.to_u64() <= cur_pos or $depth == 0 {
 										$done = 1
@@ -612,7 +612,7 @@ CompressLazy := [].{
 						or List.len($mf) < HcMatchfinder.table_size
 						or $nh3 >= HcMatchfinder.hash3_size
 						or $nh4 >= HcMatchfinder.hash4_size {
-						skipped = match HcMatchfinder.skip_bytes($mf, $base, $nh3, $nh4, input, $in_next.plus_wrap(1), in_end, $found.length.minus_wrap(1)) {
+						skipped = match HcMatchfinder.skip_bytes($mf, $base, $nh3, $nh4, input, $in_next.plus_wrap(1), in_end, $found.length.minus_wrap(1), HcMatchfinder.greedy_layout) {
 							Ok(v) => v
 						}
 						$mf = skipped.tab
@@ -630,16 +630,16 @@ CompressLazy := [].{
 						var $skip_node = $skip_at.minus_wrap($base).plus_wrap(Matchfinder.node_bias)
 						while $skip_at < skip_limit {
 							skip_node = $skip_node.to_u16_wrap()
-							prev_head = List.get($mf, HcMatchfinder.hash4_base.plus_wrap($nh4)) ?? 0
-							$mf = match List.set($mf, HcMatchfinder.hash3_base.plus_wrap($nh3), skip_node) {
+							prev_head = List.get($mf, HcMatchfinder.greedy_layout.hash4_base.plus_wrap($nh4)) ?? 0
+							$mf = match List.set($mf, HcMatchfinder.greedy_layout.hash3_base.plus_wrap($nh3), skip_node) {
 								Ok(next) => next
 								Err(_) => crash "CompressLazy.compress_greedy: mf index out of bounds"
 							}
-							$mf = match List.set($mf, HcMatchfinder.next_base.plus_wrap($skip_node.bitwise_and(32767)), prev_head) {
+							$mf = match List.set($mf, HcMatchfinder.greedy_layout.next_base.plus_wrap($skip_node.bitwise_and(32767)), prev_head) {
 								Ok(next) => next
 								Err(_) => crash "CompressLazy.compress_greedy: mf index out of bounds"
 							}
-							$mf = match List.set($mf, HcMatchfinder.hash4_base.plus_wrap($nh4), skip_node) {
+							$mf = match List.set($mf, HcMatchfinder.greedy_layout.hash4_base.plus_wrap($nh4), skip_node) {
 								Ok(next) => next
 								Err(_) => crash "CompressLazy.compress_greedy: mf index out of bounds"
 							}
@@ -651,8 +651,8 @@ CompressLazy := [].{
 						}
 					}
 					$in_next = $in_next.plus_wrap($found.length)
-					$mf = List.prefetched($mf, HcMatchfinder.hash3_base.plus_wrap($nh3))
-					$mf = List.prefetched($mf, HcMatchfinder.hash4_base.plus_wrap($nh4))
+					$mf = List.prefetched($mf, HcMatchfinder.greedy_layout.hash3_base.plus_wrap($nh3))
+					$mf = List.prefetched($mf, HcMatchfinder.greedy_layout.hash4_base.plus_wrap($nh4))
 				} else {
 				}
 
@@ -1538,7 +1538,7 @@ CompressLazy := [].{
 									or List.len($mf) < HcMatchfinder.table_size
 									or $nh3 >= HcMatchfinder.hash3_size
 									or $nh4 >= HcMatchfinder.hash4_size {
-									skipped = match HcMatchfinder.skip_bytes($mf, $base, $nh3, $nh4, input, $in_next, in_end, $skip_after) {
+									skipped = match HcMatchfinder.skip_bytes($mf, $base, $nh3, $nh4, input, $in_next, in_end, $skip_after, HcMatchfinder.default_layout) {
 										Ok(v) => v
 									}
 									$mf = skipped.tab
