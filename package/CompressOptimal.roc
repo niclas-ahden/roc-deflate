@@ -525,35 +525,45 @@ CompressOptimal := [].{
 	## them, walking the path forwards this time.
 	tally_and_build_codes : List(U32), U64 -> TallyResult
 	tally_and_build_codes = |node_item, block_length| {
-		var $freqs_litlen = List.repeat(0.U32, DeflateTables.num_litlen_syms)
-		var $freqs_offset = List.repeat(0.U32, DeflateTables.num_offset_syms)
+		# Each list covers every index its lookup can produce, not just the
+		# alphabet: a literal is a byte, the length slot is a byte added to 257,
+		# and the offset slot is a byte plus 14, so the counts need no bounds
+		# tests.
+		var $freqs_litlen = List.repeat(0.U32, DeflateTables.first_len_sym + 256)
+		var $freqs_offset = List.repeat(0.U32, 256 + 14)
 		top = CompressOptimal.node_top(block_length)
+		# Wrapping arithmetic on the per-item path: a count never exceeds the
+		# block length, and the cursor steps through the block by lengths that
+		# end exactly at its end, so a checked add would only put an overflow
+		# branch on every item.
 		var $at = 0.U64
 		while $at != block_length {
 			item = List.get(node_item, top.minus_wrap($at)) ?? 0
 			length = item.bitwise_and(CompressOptimal.optimum_len_mask).to_u64()
 			offset = item.shr_zf_wrap(CompressOptimal.optimum_offset_shift).to_u64()
 			if length == 1 {
-				offset_count = (List.get($freqs_litlen, offset) ?? 0) + 1
-				$freqs_litlen = match List.set($freqs_litlen, offset, offset_count) {
+				# A literal item's offset field holds the literal byte.
+				literal = offset.bitwise_and(0xFF)
+				offset_count = (List.get($freqs_litlen, literal) ?? 0).plus_wrap(1)
+				$freqs_litlen = match List.set($freqs_litlen, literal, offset_count) {
 					Ok(next) => next
 					Err(_) => crash "CompressOptimal.tally_and_build_codes: freqs_litlen index out of bounds"
 				}
 			} else {
-				sym = DeflateTables.first_len_sym + DeflateTables.length_slot(length)
-				sym_count = (List.get($freqs_litlen, sym) ?? 0) + 1
+				sym = DeflateTables.first_len_sym.plus_wrap(DeflateTables.length_slot(length))
+				sym_count = (List.get($freqs_litlen, sym) ?? 0).plus_wrap(1)
 				$freqs_litlen = match List.set($freqs_litlen, sym, sym_count) {
 					Ok(next) => next
 					Err(_) => crash "CompressOptimal.tally_and_build_codes: freqs_litlen index out of bounds"
 				}
 				slot = DeflateTables.offset_slot(offset)
-				slot_count = (List.get($freqs_offset, slot) ?? 0) + 1
+				slot_count = (List.get($freqs_offset, slot) ?? 0).plus_wrap(1)
 				$freqs_offset = match List.set($freqs_offset, slot, slot_count) {
 					Ok(next) => next
 					Err(_) => crash "CompressOptimal.tally_and_build_codes: freqs_offset index out of bounds"
 				}
 			}
-			$at = $at + length
+			$at = $at.plus_wrap(length)
 		}
 		$freqs_litlen = match List.set($freqs_litlen, DeflateTables.end_of_block,
 			(List.get($freqs_litlen, DeflateTables.end_of_block) ?? 0) + 1) {

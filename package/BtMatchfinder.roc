@@ -104,11 +104,21 @@ BtMatchfinder := [].{
 		var $cache_ptr = cache_ptr_0
 
 		in_next = in_base.plus_wrap(cur_pos)
-				next_hashseq = U32.from_le_bytes(input, in_next.plus_wrap(1)) ?? 0
+		# The caller leaves `max_len` bytes readable at the position, which the
+		# walk's reads at the current position and at each candidate rely on.
+		if in_next + max_len > List.len(input) {
+			crash "BtMatchfinder.get_matches: search window outside the input"
+		} else {
+		}
+		next_hashseq = U32.from_le_bytes(input, in_next.plus_wrap(1)) ?? 0
 		hash3 = nh3
 		hash4 = nh4
 		out_hash3 = Matchfinder.lz_hash(next_hashseq.bitwise_and(0xFFFFFF), BtMatchfinder.hash3_order)
 		out_hash4 = Matchfinder.lz_hash(next_hashseq, BtMatchfinder.hash4_order)
+		# Both buckets the next position reads are known now, a whole walk
+		# before they are needed, so start bringing them into the cache.
+		$mf = List.prefetched($mf, BtMatchfinder.hash3_base.plus_wrap(out_hash3.times_wrap(2)))
+		$mf = List.prefetched($mf, BtMatchfinder.hash4_base.plus_wrap(out_hash4))
 		pos = cur_pos.plus_wrap(Matchfinder.node_bias).to_u16_wrap()
 
 		# The length-3 hash keeps two ways, so a short match survives one
@@ -187,8 +197,17 @@ BtMatchfinder := [].{
 		var $best_len = 3.U64
 		var $walking = 1.U64
 
-		while $walking == 1 {
-			match_at = Matchfinder.node_index(in_base, $node)
+		# The walk continues only while the match in hand is shorter than
+		# `nice_len`, which is at most `max_len`, so the length test is always
+		# true here. Testing it at the head states the bound every read in the
+		# walk needs.
+		while $walking == 1 and $len < max_len {
+			# The candidate's distance back is the current position less the
+			# node's, which for a node in the window is 1 to 32767, so the mask
+			# changes nothing and the saturating subtract never saturates. Both
+			# state bounds the range prover carries: the candidate is at or
+			# before the current position.
+			match_at = in_next.minus_saturated(cur_pos.plus_wrap(Matchfinder.node_bias).minus_wrap($node.to_u64()).bitwise_and(32767))
 
 			if (List.get(input, match_at.plus_wrap($len)) ?? 0) == (List.get(input, in_next.plus_wrap($len)) ?? 0) {
 				$len = Matchfinder.lz_extend(input, in_next, match_at, $len.plus_wrap(1), max_len)
@@ -292,11 +311,21 @@ BtMatchfinder := [].{
 		}
 
 		in_next = in_base.plus_wrap(cur_pos)
-				next_hashseq = U32.from_le_bytes(input, in_next.plus_wrap(1)) ?? 0
+		# The caller leaves `nice_len` bytes readable at the position, which the
+		# walk's reads at the current position and at each candidate rely on.
+		if in_next + nice_len > List.len(input) {
+			crash "BtMatchfinder.skip_byte: search window outside the input"
+		} else {
+		}
+		next_hashseq = U32.from_le_bytes(input, in_next.plus_wrap(1)) ?? 0
 		hash3 = nh3
 		hash4 = nh4
 		out_hash3 = Matchfinder.lz_hash(next_hashseq.bitwise_and(0xFFFFFF), BtMatchfinder.hash3_order)
 		out_hash4 = Matchfinder.lz_hash(next_hashseq, BtMatchfinder.hash4_order)
+		# Both buckets the next position reads are known now, a whole walk
+		# before they are needed, so start bringing them into the cache.
+		$mf = List.prefetched($mf, BtMatchfinder.hash3_base.plus_wrap(out_hash3.times_wrap(2)))
+		$mf = List.prefetched($mf, BtMatchfinder.hash4_base.plus_wrap(out_hash4))
 		pos = cur_pos.plus_wrap(Matchfinder.node_bias).to_u16_wrap()
 
 		slot3 = BtMatchfinder.hash3_base.plus_wrap(hash3.bitwise_and(0xFFFF).times_wrap(2))
@@ -344,8 +373,17 @@ BtMatchfinder := [].{
 		var $len = 0.U64
 		var $walking = 1.U64
 
-		while $walking == 1 {
-			match_at = Matchfinder.node_index(in_base, $node)
+		# The walk continues only while the match in hand is shorter than
+		# `nice_len`, which is at most `nice_len`, so the length test is always
+		# true here. Testing it at the head states the bound every read in the
+		# walk needs.
+		while $walking == 1 and $len < nice_len {
+			# The candidate's distance back is the current position less the
+			# node's, which for a node in the window is 1 to 32767, so the mask
+			# changes nothing and the saturating subtract never saturates. Both
+			# state bounds the range prover carries: the candidate is at or
+			# before the current position.
+			match_at = in_next.minus_saturated(cur_pos.plus_wrap(Matchfinder.node_bias).minus_wrap($node.to_u64()).bitwise_and(32767))
 
 			if (List.get(input, match_at.plus_wrap($len)) ?? 0) == (List.get(input, in_next.plus_wrap($len)) ?? 0) {
 				$len = Matchfinder.lz_extend(input, in_next, match_at, $len.plus_wrap(1), nice_len)
