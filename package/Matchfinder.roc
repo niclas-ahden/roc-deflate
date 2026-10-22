@@ -46,6 +46,17 @@ Matchfinder := [].{
 	node_index = |in_base, node|
 		in_base.plus_wrap(node.to_u64()).minus_wrap(Matchfinder.node_bias)
 
+	## Absolute input index of a biased node in the window ending at the
+	## position `in_next`, which is `cur_pos` past the window base: the node's
+	## distance back, 1 to 32767 for a node in the window, taken from
+	## `in_next`. The mask then changes nothing and the subtract never
+	## saturates, so this is the node's index, and the saturating subtract
+	## states that it is at or before `in_next`: a read the caller has
+	## bounded at the current position bounds the same read at the node.
+	node_before : U64, U64, U16 -> U64
+	node_before = |in_next, cur_pos, node|
+		in_next.minus_saturated(cur_pos.plus_wrap(Matchfinder.node_bias).minus_wrap(node.to_u64()).bitwise_and(32767))
+
 	## Number of bytes at `match_at` that equal the bytes at `str_at`, counting
 	## the `start_len` bytes the caller already matched and stopping at
 	## `max_len`.
