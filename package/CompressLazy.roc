@@ -207,50 +207,46 @@ CompressLazy := [].{
 			num_new_observations: 0,
 		}
 	}
-	## The static Huffman code RFC 1951 defines, built once per stream so a
-	## block can be costed against it.
+	## The fixed Huffman codes defined by RFC 1951 section 3.2.6.
+	## Their lengths and canonical words are prescribed, so constructing a
+	## general Huffman tree for these same frequencies is unnecessary.
 	build_static_codes : U64 -> BlockOut.Codes
 	build_static_codes = |_unused| {
-		var $freqs_litlen = List.repeat(0.U32, DeflateTables.num_litlen_syms)
-		var $i = 0.U64
-		while $i < DeflateTables.num_litlen_syms {
-			f =
-				if $i < 144 {
-					2
-				} else if $i < 256 {
-					1
-				} else if $i < 280 {
-					4
+		litlen_lens = List.repeat(0.U8, DeflateTables.num_litlen_syms).map_with_index(
+			|_, sym|
+				if sym < 144 {
+					8
+				} else if sym < 256 {
+					9
+				} else if sym < 280 {
+					7
 				} else {
-					2
-				}
-			$freqs_litlen = match List.set($freqs_litlen, $i, f) {
-				Ok(next) => next
-				Err(_) => crash "CompressLazy.build_static_codes: freqs_litlen index out of bounds"
-			}
-			$i = $i + 1
-		}
-		litlen = HuffmanEncode.make_code(
-			DeflateTables.num_litlen_syms,
-			BlockOut.max_litlen_codeword_len,
-			$freqs_litlen,
-			List.repeat(0.U8, DeflateTables.num_litlen_syms),
-			List.repeat(0.U32, DeflateTables.num_litlen_syms),
+					8
+				},
 		)
-		offset = HuffmanEncode.make_code(
-			DeflateTables.num_offset_syms,
-			BlockOut.max_offset_codeword_len,
-			List.repeat(1.U32, DeflateTables.num_offset_syms),
-			List.repeat(0.U8, DeflateTables.num_offset_syms),
-			List.repeat(0.U32, DeflateTables.num_offset_syms),
+		litlen_codewords = List.repeat(0.U32, DeflateTables.num_litlen_syms).map_with_index(
+			|_, sym| {
+				{ word, len } = if sym < 144 {
+					{ word: 0x30 + sym, len: 8 }
+				} else if sym < 256 {
+					{ word: 0x190 + sym - 144, len: 9 }
+				} else if sym < 280 {
+					{ word: sym - 256, len: 7 }
+				} else {
+					{ word: 0xC0 + sym - 280, len: 8 }
+				}
+				HuffmanEncode.reverse_codeword(word.to_u32_wrap(), len)
+			},
 		)
 		{
-			litlen_lens: litlen.lens,
-			litlen_codewords: litlen.codewords,
-			offset_lens: offset.lens,
-			offset_codewords: offset.codewords,
+			litlen_lens,
+			litlen_codewords,
+			offset_lens: List.repeat(5.U8, DeflateTables.num_offset_syms),
+			offset_codewords: List.repeat(0.U32, DeflateTables.num_offset_syms).map_with_index(|_, sym|
+				HuffmanEncode.reverse_codeword(sym.to_u32_wrap(), 5)),
 		}
 	}
+
 
 	## Index of the highest set bit, which stands in for the cost of an offset:
 	## each extra bit of magnitude is roughly one more bit on the wire.
@@ -1711,4 +1707,51 @@ CompressLazy := [].{
 		}
 		$out
 	}
+}
+
+# The direct RFC construction must agree with the generic Huffman builder
+# for all literal/length and distance symbols, including unused symbols.
+expect {
+	reference = {
+		var $freqs_litlen = List.repeat(0.U32, DeflateTables.num_litlen_syms)
+		var $i = 0.U64
+		while $i < DeflateTables.num_litlen_syms {
+			f =
+				if $i < 144 {
+					2
+				} else if $i < 256 {
+					1
+				} else if $i < 280 {
+					4
+				} else {
+					2
+				}
+			$freqs_litlen = match List.set($freqs_litlen, $i, f) {
+				Ok(next) => next
+				Err(_) => crash "CompressLazy.build_static_codes: freqs_litlen index out of bounds"
+			}
+			$i = $i + 1
+		}
+		litlen = HuffmanEncode.make_code(
+			DeflateTables.num_litlen_syms,
+			BlockOut.max_litlen_codeword_len,
+			$freqs_litlen,
+			List.repeat(0.U8, DeflateTables.num_litlen_syms),
+			List.repeat(0.U32, DeflateTables.num_litlen_syms),
+		)
+		offset = HuffmanEncode.make_code(
+			DeflateTables.num_offset_syms,
+			BlockOut.max_offset_codeword_len,
+			List.repeat(1.U32, DeflateTables.num_offset_syms),
+			List.repeat(0.U8, DeflateTables.num_offset_syms),
+			List.repeat(0.U32, DeflateTables.num_offset_syms),
+		)
+		{
+			litlen_lens: litlen.lens,
+			litlen_codewords: litlen.codewords,
+			offset_lens: offset.lens,
+			offset_codewords: offset.codewords,
+		}
+	}
+	CompressLazy.build_static_codes(0) == reference
 }
