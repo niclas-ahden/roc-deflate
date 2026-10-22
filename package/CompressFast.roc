@@ -138,17 +138,19 @@ CompressFast := [].{
 						$nh = Matchfinder.lz_hash(U32.from_le_bytes(input, $in_next.plus_wrap(1)) ?? 0, HtMatchfinder.hash_order)
 						$tab = List.prefetched($tab, $nh.times_wrap(2))
 						cur_node0 = List.get($tab, slot0) ?? 0
+						cur_node1 = List.get($tab, slot0.plus_wrap(1)) ?? 0
 						$tab = match List.set($tab, slot0, cur_pos.plus_wrap(Matchfinder.node_bias).to_u16_wrap()) {
 							Ok(next) => next
 							Err(_) => crash "CompressFast.compress: tab index out of bounds"
 						}
+						# Read both entries before updating this bucket. Even an expired
+						# first entry can replace the second: the second is older, so it
+						# cannot be a valid candidate when the first has expired.
+						$tab = match List.set($tab, slot0.plus_wrap(1), cur_node0) {
+							Ok(next) => next
+							Err(_) => crash "CompressFast.compress: tab index out of bounds"
+						}
 						if cur_node0.to_u64() > cur_pos {
-							# Push the displaced entry into the second slot.
-							cur_node1 = List.get($tab, slot0.plus_wrap(1)) ?? 0
-							$tab = match List.set($tab, slot0.plus_wrap(1), cur_node0) {
-								Ok(next) => next
-								Err(_) => crash "CompressFast.compress: tab index out of bounds"
-							}
 							if (U32.from_le_bytes(input, Matchfinder.node_index($base, cur_node0)) ?? 0) == seq {
 								$found0 = True
 								$found = True
