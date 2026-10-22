@@ -271,6 +271,28 @@ CompressFast := [].{
 							var $skip_at = $in_next.plus_wrap(1)
 							# The node is carried already biased.
 							var $skip_node = $skip_at.minus_wrap($base).plus_wrap(Matchfinder.node_bias)
+							# An offset-one match is a run of one byte. Every four-byte
+							# sequence wholly within it has the same hash, and a bucket
+							# retains only its two newest positions. Install those two
+							# positions directly, then insert the three sequences that
+							# overlap the end of the run normally.
+							if $found_offset == 1 and $found_len >= 8 {
+								uniform_end = skip_end.minus_wrap(3)
+								latest = uniform_end.minus_wrap(1).minus_wrap($base).plus_wrap(Matchfinder.node_bias)
+								slot0 = $nh.bitwise_and(32767).times_wrap(2)
+								$tab = match List.set($tab, slot0, latest.to_u16_wrap()) {
+									Ok(next) => next
+									Err(_) => crash "CompressFast.compress: uniform bucket index out of bounds"
+								}
+								$tab = match List.set($tab, slot0.plus_wrap(1), latest.minus_wrap(1).to_u16_wrap()) {
+									Ok(next) => next
+									Err(_) => crash "CompressFast.compress: uniform bucket index out of bounds"
+								}
+								$skip_at = uniform_end
+								$skip_node = uniform_end.minus_wrap($base).plus_wrap(Matchfinder.node_bias)
+								$nh = Matchfinder.lz_hash(U32.from_le_bytes(input, uniform_end) ?? 0, HtMatchfinder.hash_order)
+							} else {
+							}
 							while $skip_at < skip_limit {
 								slot0 = $nh.bitwise_and(0x7FFF).times_wrap(2)
 								first = List.get($tab, slot0) ?? 0

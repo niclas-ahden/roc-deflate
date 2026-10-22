@@ -145,7 +145,7 @@ edge_lengths : U64 -> List(U64)
 edge_lengths = |extra|
 	List.repeat(0.U64, 65)
 		.map_with_index(|_, i| i)
-		.concat([4999, 5000, 5001, 65535, 65536, 65537, 300000, 300258, 304742, 304743, 304999, 305000, 305001, 609998])
+		.concat([4999, 5000, 5001, 32767, 32768, 32769, 65535, 65536, 65537, 300000, 300258, 304742, 304743, 304999, 305000, 305001, 609998])
 		.map(|len| len + extra)
 
 # Bytes from a 64-bit LCG, which no level can compress.
@@ -173,6 +173,7 @@ edge_cases = |extra| {
 		{ shape: "zeros", bytes: List.repeat(0.U8, longest) },
 		{ shape: "noise", bytes: noise(longest) },
 		{ shape: "text", bytes: TextGen.generate(7, longest) },
+		{ shape: "period2", bytes: List.repeat(0.U8, longest).map_with_index(|_, i| (97 + i % 2).to_u8_wrap()) },
 		{ shape: "pattern", bytes: List.repeat(0.U8, longest).map_with_index(|_, i| (97 + i % 7).to_u8_wrap()) },
 	]
 	var $cases = []

@@ -38,18 +38,19 @@ HcMatchfinder := [].{
 	hash4_size : U64
 	hash4_size = 65536
 
-	## The three tables live in one list: the chain links first (one window
-	## long, indexed by position), then the length-3 heads, then the length-4
-	## heads. One list crosses each call and each loop as three words of
-	## live state instead of nine, and is retained and released once.
+	## The three tables live in one list: the length-4 heads first, then the
+	## chain links (one window long), then the length-3 heads. Putting the
+	## length-4 heads at offset zero lets the insertion loop load and store
+	## them with one scaled-index address, without a separate region offset.
+	## One allocation also keeps the tables unique across calls and loops.
 	next_base : U64
-	next_base = 0
+	next_base = 65536
 
 	hash3_base : U64
-	hash3_base = 32768
+	hash3_base = 98304
 
 	hash4_base : U64
-	hash4_base = 65536
+	hash4_base = 0
 
 	table_size : U64
 	table_size = 131072
@@ -114,7 +115,7 @@ HcMatchfinder := [].{
 			var $hash4 = nh4_0
 			while $in_next < end {
 				pos = $cur_pos.plus_wrap(Matchfinder.node_bias.to_i64_wrap()).to_u16_wrap()
-				slot = $cur_pos.to_u64_wrap().bitwise_and(32767)
+				slot = HcMatchfinder.next_base.plus_wrap($cur_pos.to_u64_wrap().bitwise_and(32767))
 				prev_head = List.get($tab, HcMatchfinder.hash4_base.plus_wrap($hash4)) ?? 0
 				tab1 = match List.set($tab, HcMatchfinder.hash3_base.plus_wrap($hash3), pos) {
 					Ok(next) => next

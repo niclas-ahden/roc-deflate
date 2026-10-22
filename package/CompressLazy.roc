@@ -393,7 +393,7 @@ CompressLazy := [].{
 							Ok(next) => next
 							Err(_) => crash "CompressLazy.compress_greedy: mf index out of bounds"
 						}
-						$mf = match List.set($mf, cur_pos.bitwise_and(32767), cur_node4) {
+						$mf = match List.set($mf, HcMatchfinder.next_base.plus_wrap(cur_pos.bitwise_and(32767)), cur_node4) {
 							Ok(next) => next
 							Err(_) => crash "CompressLazy.compress_greedy: mf index out of bounds"
 						}
@@ -409,13 +409,8 @@ CompressLazy := [].{
 						# rather than called: it is the greedy loop's whole body, and as a call
 						# it returned its match through memory and spilled the loop's state
 						# around itself.
-						# The chain region is one window long, so every masked chain index is
-						# in range, and a length guard here would let each chain read's bounds
-						# test fold away. It is deliberately absent: the test costs nothing on
-						# the walk's critical path, while its survival keeps the masked index
-						# as a separate value that the load then scales for free. Folded, the
-						# mask and scale merge into one instruction ahead of the load, which
-						# is a cycle more on every step of the chain.
+						# The masked node selects a chain slot within one window;
+						# next_base maps it into the shared table allocation.
 						# A node at or below the current position, in the biased space the
 						# tables use, is out of the window.
 
@@ -454,7 +449,7 @@ CompressLazy := [].{
 											break
 										} else {
 										}
-										$node4 = List.get($mf, $node4.to_u64().bitwise_and(32767)) ?? 0
+										$node4 = List.get($mf, HcMatchfinder.next_base.plus_wrap($node4.to_u64().bitwise_and(32767))) ?? 0
 										$depth = $depth.minus_wrap(1)
 										if $node4.to_u64() <= cur_pos or $depth == 0 {
 											$done = 1
@@ -469,7 +464,7 @@ CompressLazy := [].{
 										if $best_len >= $nice_len {
 											$done = 1
 										} else {
-											$node4 = List.get($mf, $node4.to_u64().bitwise_and(32767)) ?? 0
+											$node4 = List.get($mf, HcMatchfinder.next_base.plus_wrap($node4.to_u64().bitwise_and(32767))) ?? 0
 											$depth = $depth.minus_wrap(1)
 											if $node4.to_u64() <= cur_pos or $depth == 0 {
 												$done = 1
@@ -506,7 +501,7 @@ CompressLazy := [].{
 									break
 								} else {
 								}
-								$node4 = List.get($mf, $node4.to_u64().bitwise_and(32767)) ?? 0
+								$node4 = List.get($mf, HcMatchfinder.next_base.plus_wrap($node4.to_u64().bitwise_and(32767))) ?? 0
 								$depth = $depth.minus_wrap(1)
 								if $node4.to_u64() <= cur_pos or $depth == 0 {
 									$done = 1
@@ -527,7 +522,7 @@ CompressLazy := [].{
 								} else {
 								}
 								if $done == 0 {
-									$node4 = List.get($mf, $node4.to_u64().bitwise_and(32767)) ?? 0
+									$node4 = List.get($mf, HcMatchfinder.next_base.plus_wrap($node4.to_u64().bitwise_and(32767))) ?? 0
 									$depth = $depth.minus_wrap(1)
 									if $node4.to_u64() <= cur_pos or $depth == 0 {
 										$done = 1
@@ -640,7 +635,7 @@ CompressLazy := [].{
 								Ok(next) => next
 								Err(_) => crash "CompressLazy.compress_greedy: mf index out of bounds"
 							}
-							$mf = match List.set($mf, $skip_node.bitwise_and(32767), prev_head) {
+							$mf = match List.set($mf, HcMatchfinder.next_base.plus_wrap($skip_node.bitwise_and(32767)), prev_head) {
 								Ok(next) => next
 								Err(_) => crash "CompressLazy.compress_greedy: mf index out of bounds"
 							}
@@ -883,7 +878,7 @@ CompressLazy := [].{
 						Ok(next) => next
 						Err(_) => crash "CompressLazy.compress: mf index out of bounds"
 					}
-					$mf = match List.set($mf, cur_pos.bitwise_and(32767), cur_node4) {
+					$mf = match List.set($mf, HcMatchfinder.next_base.plus_wrap(cur_pos.bitwise_and(32767)), cur_node4) {
 						Ok(next) => next
 						Err(_) => crash "CompressLazy.compress: mf index out of bounds"
 					}
@@ -897,13 +892,8 @@ CompressLazy := [].{
 					# The hash-chain search, one of the four copies of libdeflate's
 					# `hc_matchfinder_longest_match` (see HcMatchfinder), written out here
 					# rather than called so the loop's state stays in registers across it.
-					# The chain region is one window long, so every masked chain index is
-					# in range, and a length guard here would let each chain read's bounds
-					# test fold away. It is deliberately absent: the test costs nothing on
-					# the walk's critical path, while its survival keeps the masked index
-					# as a separate value that the load then scales for free. Folded, the
-					# mask and scale merge into one instruction ahead of the load, which
-					# is a cycle more on every step of the chain.
+					# The masked node selects a chain slot within one window;
+					# next_base maps it into the shared table allocation.
 					# A node at or below the current position, in the biased space the
 					# tables use, is out of the window.
 
@@ -942,7 +932,7 @@ CompressLazy := [].{
 										break
 									} else {
 									}
-									$node4_s = List.get($mf, $node4_s.to_u64().bitwise_and(32767)) ?? 0
+									$node4_s = List.get($mf, HcMatchfinder.next_base.plus_wrap($node4_s.to_u64().bitwise_and(32767))) ?? 0
 									$depth_s = $depth_s.minus_wrap(1)
 									if $node4_s.to_u64() <= cur_pos or $depth_s == 0 {
 										$done_s = 1
@@ -957,7 +947,7 @@ CompressLazy := [].{
 									if $best_len_s >= $nice_len {
 										$done_s = 1
 									} else {
-										$node4_s = List.get($mf, $node4_s.to_u64().bitwise_and(32767)) ?? 0
+										$node4_s = List.get($mf, HcMatchfinder.next_base.plus_wrap($node4_s.to_u64().bitwise_and(32767))) ?? 0
 										$depth_s = $depth_s.minus_wrap(1)
 										if $node4_s.to_u64() <= cur_pos or $depth_s == 0 {
 											$done_s = 1
@@ -995,7 +985,7 @@ CompressLazy := [].{
 								break
 							} else {
 							}
-							$node4_s = List.get($mf, $node4_s.to_u64().bitwise_and(32767)) ?? 0
+							$node4_s = List.get($mf, HcMatchfinder.next_base.plus_wrap($node4_s.to_u64().bitwise_and(32767))) ?? 0
 							$depth_s = $depth_s.minus_wrap(1)
 							if $node4_s.to_u64() <= cur_pos or $depth_s == 0 {
 								$done_s = 1
@@ -1016,7 +1006,7 @@ CompressLazy := [].{
 							} else {
 							}
 							if $done_s == 0 {
-								$node4_s = List.get($mf, $node4_s.to_u64().bitwise_and(32767)) ?? 0
+								$node4_s = List.get($mf, HcMatchfinder.next_base.plus_wrap($node4_s.to_u64().bitwise_and(32767))) ?? 0
 								$depth_s = $depth_s.minus_wrap(1)
 								if $node4_s.to_u64() <= cur_pos or $depth_s == 0 {
 									$done_s = 1
@@ -1110,7 +1100,7 @@ CompressLazy := [].{
 									Ok(next) => next
 									Err(_) => crash "CompressLazy.compress: mf index out of bounds"
 								}
-								$mf = match List.set($mf, cur_pos.bitwise_and(32767), cur_node4) {
+								$mf = match List.set($mf, HcMatchfinder.next_base.plus_wrap(cur_pos.bitwise_and(32767)), cur_node4) {
 									Ok(next) => next
 									Err(_) => crash "CompressLazy.compress: mf index out of bounds"
 								}
@@ -1124,13 +1114,8 @@ CompressLazy := [].{
 								# The hash-chain search, one of the four copies of libdeflate's
 								# `hc_matchfinder_longest_match` (see HcMatchfinder), written out here
 								# rather than called so the loop's state stays in registers across it.
-								# The chain region is one window long, so every masked chain index is
-								# in range, and a length guard here would let each chain read's bounds
-								# test fold away. It is deliberately absent: the test costs nothing on
-								# the walk's critical path, while its survival keeps the masked index
-								# as a separate value that the load then scales for free. Folded, the
-								# mask and scale merge into one instruction ahead of the load, which
-								# is a cycle more on every step of the chain.
+								# The masked node selects a chain slot within one window;
+								# next_base maps it into the shared table allocation.
 								# A node at or below the current position, in the biased space the
 								# tables use, is out of the window.
 
@@ -1169,7 +1154,7 @@ CompressLazy := [].{
 													break
 												} else {
 												}
-												$node4_n = List.get($mf, $node4_n.to_u64().bitwise_and(32767)) ?? 0
+												$node4_n = List.get($mf, HcMatchfinder.next_base.plus_wrap($node4_n.to_u64().bitwise_and(32767))) ?? 0
 												$depth_n = $depth_n.minus_wrap(1)
 												if $node4_n.to_u64() <= cur_pos or $depth_n == 0 {
 													$done_n = 1
@@ -1184,7 +1169,7 @@ CompressLazy := [].{
 												if $best_len_n >= $nice_len {
 													$done_n = 1
 												} else {
-													$node4_n = List.get($mf, $node4_n.to_u64().bitwise_and(32767)) ?? 0
+													$node4_n = List.get($mf, HcMatchfinder.next_base.plus_wrap($node4_n.to_u64().bitwise_and(32767))) ?? 0
 													$depth_n = $depth_n.minus_wrap(1)
 													if $node4_n.to_u64() <= cur_pos or $depth_n == 0 {
 														$done_n = 1
@@ -1222,7 +1207,7 @@ CompressLazy := [].{
 											break
 										} else {
 										}
-										$node4_n = List.get($mf, $node4_n.to_u64().bitwise_and(32767)) ?? 0
+										$node4_n = List.get($mf, HcMatchfinder.next_base.plus_wrap($node4_n.to_u64().bitwise_and(32767))) ?? 0
 										$depth_n = $depth_n.minus_wrap(1)
 										if $node4_n.to_u64() <= cur_pos or $depth_n == 0 {
 											$done_n = 1
@@ -1243,7 +1228,7 @@ CompressLazy := [].{
 										} else {
 										}
 										if $done_n == 0 {
-											$node4_n = List.get($mf, $node4_n.to_u64().bitwise_and(32767)) ?? 0
+											$node4_n = List.get($mf, HcMatchfinder.next_base.plus_wrap($node4_n.to_u64().bitwise_and(32767))) ?? 0
 											$depth_n = $depth_n.minus_wrap(1)
 											if $node4_n.to_u64() <= cur_pos or $depth_n == 0 {
 												$done_n = 1
@@ -1326,7 +1311,7 @@ CompressLazy := [].{
 										Ok(next) => next
 										Err(_) => crash "CompressLazy.compress: mf index out of bounds"
 									}
-									$mf = match List.set($mf, cur_pos.bitwise_and(32767), cur_node4) {
+									$mf = match List.set($mf, HcMatchfinder.next_base.plus_wrap(cur_pos.bitwise_and(32767)), cur_node4) {
 										Ok(next) => next
 										Err(_) => crash "CompressLazy.compress: mf index out of bounds"
 									}
@@ -1340,13 +1325,8 @@ CompressLazy := [].{
 									# The hash-chain search, one of the four copies of libdeflate's
 									# `hc_matchfinder_longest_match` (see HcMatchfinder), written out here
 									# rather than called so the loop's state stays in registers across it.
-									# The chain region is one window long, so every masked chain index is
-									# in range, and a length guard here would let each chain read's bounds
-									# test fold away. It is deliberately absent: the test costs nothing on
-									# the walk's critical path, while its survival keeps the masked index
-									# as a separate value that the load then scales for free. Folded, the
-									# mask and scale merge into one instruction ahead of the load, which
-									# is a cycle more on every step of the chain.
+									# The masked node selects a chain slot within one window;
+									# next_base maps it into the shared table allocation.
 									# A node at or below the current position, in the biased space the
 									# tables use, is out of the window.
 
@@ -1385,7 +1365,7 @@ CompressLazy := [].{
 														break
 													} else {
 													}
-													$node4_m = List.get($mf, $node4_m.to_u64().bitwise_and(32767)) ?? 0
+													$node4_m = List.get($mf, HcMatchfinder.next_base.plus_wrap($node4_m.to_u64().bitwise_and(32767))) ?? 0
 													$depth_m = $depth_m.minus_wrap(1)
 													if $node4_m.to_u64() <= cur_pos or $depth_m == 0 {
 														$done_m = 1
@@ -1400,7 +1380,7 @@ CompressLazy := [].{
 													if $best_len_m >= $nice_len {
 														$done_m = 1
 													} else {
-														$node4_m = List.get($mf, $node4_m.to_u64().bitwise_and(32767)) ?? 0
+														$node4_m = List.get($mf, HcMatchfinder.next_base.plus_wrap($node4_m.to_u64().bitwise_and(32767))) ?? 0
 														$depth_m = $depth_m.minus_wrap(1)
 														if $node4_m.to_u64() <= cur_pos or $depth_m == 0 {
 															$done_m = 1
@@ -1438,7 +1418,7 @@ CompressLazy := [].{
 												break
 											} else {
 											}
-											$node4_m = List.get($mf, $node4_m.to_u64().bitwise_and(32767)) ?? 0
+											$node4_m = List.get($mf, HcMatchfinder.next_base.plus_wrap($node4_m.to_u64().bitwise_and(32767))) ?? 0
 											$depth_m = $depth_m.minus_wrap(1)
 											if $node4_m.to_u64() <= cur_pos or $depth_m == 0 {
 												$done_m = 1
@@ -1459,7 +1439,7 @@ CompressLazy := [].{
 											} else {
 											}
 											if $done_m == 0 {
-												$node4_m = List.get($mf, $node4_m.to_u64().bitwise_and(32767)) ?? 0
+												$node4_m = List.get($mf, HcMatchfinder.next_base.plus_wrap($node4_m.to_u64().bitwise_and(32767))) ?? 0
 												$depth_m = $depth_m.minus_wrap(1)
 												if $node4_m.to_u64() <= cur_pos or $depth_m == 0 {
 													$done_m = 1
@@ -1579,7 +1559,7 @@ CompressLazy := [].{
 											Ok(next) => next
 											Err(_) => crash "CompressLazy.compress: mf index out of bounds"
 										}
-										$mf = match List.set($mf, $skip_node.bitwise_and(32767), prev_head) {
+										$mf = match List.set($mf, HcMatchfinder.next_base.plus_wrap($skip_node.bitwise_and(32767)), prev_head) {
 											Ok(next) => next
 											Err(_) => crash "CompressLazy.compress: mf index out of bounds"
 										}
