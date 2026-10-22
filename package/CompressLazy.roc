@@ -373,8 +373,8 @@ CompressLazy := [].{
 					} else {
 						# `max_len` bytes are readable here: it is at most what remained
 						# where the block loop last set it, and the scan stops a full
-						# match length before the input end. Stating it bounds every
-						# read below, at this position and at each candidate before it.
+						# match length before the input end. Stating it once bounds reads
+						# at this position; candidates retain their own bounds tests.
 						if $in_next + $max_len > in_end {
 							crash "CompressLazy.compress_greedy: search window outside the input"
 						} else {
@@ -431,7 +431,7 @@ CompressLazy := [].{
 								$done = 1
 							} else {
 								if $best_len < 3 {
-									match_at = Matchfinder.node_before($in_next, cur_pos, cur_node3)
+									match_at = Matchfinder.node_index($base, cur_node3)
 									if (U32.from_le_bytes(input, match_at) ?? 0).bitwise_and(0xFFFFFF)
 										== seq4.bitwise_and(0xFFFFFF) {
 										$best_len = 3
@@ -447,7 +447,7 @@ CompressLazy := [].{
 									# Walk the chain until four bytes agree.
 									var $found_at = 0.U64
 									while True {
-										match_at = Matchfinder.node_before($in_next, cur_pos, $node4)
+										match_at = Matchfinder.node_index($base, $node4)
 										if (U32.from_le_bytes(input, match_at) ?? 0) == seq4 {
 											$found_at = match_at
 											break
@@ -497,7 +497,7 @@ CompressLazy := [].{
 							# add or subtract would put an overflow branch on every candidate.
 							best_tail = U32.from_le_bytes(input, $in_next.plus_wrap($best_len).minus_wrap(3)) ?? 0
 							while True {
-								match_at = Matchfinder.node_before($in_next, cur_pos, $node4)
+								match_at = Matchfinder.node_index($base, $node4)
 								# Check those four bytes before anything else.
 								if (U32.from_le_bytes(input, match_at.plus_wrap($best_len).minus_wrap(3)) ?? 0) == best_tail
 									and (U32.from_le_bytes(input, match_at) ?? 0) == seq4 {
@@ -900,8 +900,8 @@ CompressLazy := [].{
 					# Not enough bytes left to read the next position's hash sequence.
 				} else {
 					# `max_len` bytes are readable here: it is at most what remained
-					# where it was last set, and it only shrinks. Stating it bounds every
-					# read below, at this position and at each candidate before it.
+					# where it was last set, and it only shrinks. Stating it bounds the
+					# reads at this position; candidates keep their own bounds tests.
 					if $in_next + $max_len > in_end {
 						crash "CompressLazy.compress: search window outside the input"
 					} else {
@@ -956,7 +956,7 @@ CompressLazy := [].{
 							$done_s = 1
 						} else {
 							if $best_len_s < 3 {
-								match_at_s = Matchfinder.node_before($in_next, cur_pos, cur_node3)
+								match_at_s = Matchfinder.node_index($base, cur_node3)
 								if (U32.from_le_bytes(input, match_at_s) ?? 0).bitwise_and(0xFFFFFF)
 									== seq4_s.bitwise_and(0xFFFFFF) {
 									$best_len_s = 3
@@ -972,7 +972,7 @@ CompressLazy := [].{
 								# Walk the chain until four bytes agree.
 								var $found_at_s = 0.U64
 								while True {
-									match_at_s = Matchfinder.node_before($in_next, cur_pos, $node4_s)
+									match_at_s = Matchfinder.node_index($base, $node4_s)
 									if (U32.from_le_bytes(input, match_at_s) ?? 0) == seq4_s {
 										$found_at_s = match_at_s
 										break
@@ -1020,7 +1020,7 @@ CompressLazy := [].{
 						# candidate.
 						best_tail_s = U32.from_le_bytes(input, $in_next.plus_wrap($best_len_s).minus_wrap(3)) ?? 0
 						while True {
-							match_at_s = Matchfinder.node_before($in_next, cur_pos, $node4_s)
+							match_at_s = Matchfinder.node_index($base, $node4_s)
 							# Check those four bytes before anything else.
 							# Wrapping arithmetic: positions are far below 2^63, and a checked
 							# add or subtract would put an overflow branch on every candidate.
@@ -1129,8 +1129,8 @@ CompressLazy := [].{
 								# Not enough bytes left to read the next position's hash sequence.
 							} else {
 								# `max_len` bytes are readable here: it is at most what remained
-								# where it was last set, and it only shrinks. Stating it bounds every
-								# read below, at this position and at each candidate before it.
+								# where it was last set, and it only shrinks. Stating it bounds the
+								# reads at this position; candidates keep their own bounds tests.
 								if $in_next + $max_len > in_end {
 									crash "CompressLazy.compress: search window outside the input"
 								} else {
@@ -1185,7 +1185,7 @@ CompressLazy := [].{
 										$done_n = 1
 									} else {
 										if $best_len_n < 3 {
-											match_at_n = Matchfinder.node_before($in_next, cur_pos, cur_node3)
+											match_at_n = Matchfinder.node_index($base, cur_node3)
 											if (U32.from_le_bytes(input, match_at_n) ?? 0).bitwise_and(0xFFFFFF)
 												== seq4_n.bitwise_and(0xFFFFFF) {
 												$best_len_n = 3
@@ -1201,7 +1201,7 @@ CompressLazy := [].{
 											# Walk the chain until four bytes agree.
 											var $found_at_n = 0.U64
 											while True {
-												match_at_n = Matchfinder.node_before($in_next, cur_pos, $node4_n)
+												match_at_n = Matchfinder.node_index($base, $node4_n)
 												if (U32.from_le_bytes(input, match_at_n) ?? 0) == seq4_n {
 													$found_at_n = match_at_n
 													break
@@ -1249,7 +1249,7 @@ CompressLazy := [].{
 									# candidate.
 									best_tail_n = U32.from_le_bytes(input, $in_next.plus_wrap($best_len_n).minus_wrap(3)) ?? 0
 									while True {
-										match_at_n = Matchfinder.node_before($in_next, cur_pos, $node4_n)
+										match_at_n = Matchfinder.node_index($base, $node4_n)
 										# Check those four bytes before anything else.
 										# Wrapping arithmetic: positions are far below 2^63, and a checked
 										# add or subtract would put an overflow branch on every candidate.
@@ -1347,8 +1347,8 @@ CompressLazy := [].{
 									# Not enough bytes left to read the next position's hash sequence.
 								} else {
 									# `max_len` bytes are readable here: it is at most what remained
-									# where it was last set, and it only shrinks. Stating it bounds every
-									# read below, at this position and at each candidate before it.
+									# where it was last set, and it only shrinks. Stating it bounds the
+									# reads at this position; candidates keep their own bounds tests.
 									if $in_next + $max_len > in_end {
 										crash "CompressLazy.compress: search window outside the input"
 									} else {
@@ -1403,7 +1403,7 @@ CompressLazy := [].{
 											$done_m = 1
 										} else {
 											if $best_len_m < 3 {
-												match_at_m = Matchfinder.node_before($in_next, cur_pos, cur_node3)
+												match_at_m = Matchfinder.node_index($base, cur_node3)
 												if (U32.from_le_bytes(input, match_at_m) ?? 0).bitwise_and(0xFFFFFF)
 													== seq4_m.bitwise_and(0xFFFFFF) {
 													$best_len_m = 3
@@ -1419,7 +1419,7 @@ CompressLazy := [].{
 												# Walk the chain until four bytes agree.
 												var $found_at_m = 0.U64
 												while True {
-													match_at_m = Matchfinder.node_before($in_next, cur_pos, $node4_m)
+													match_at_m = Matchfinder.node_index($base, $node4_m)
 													if (U32.from_le_bytes(input, match_at_m) ?? 0) == seq4_m {
 														$found_at_m = match_at_m
 														break
@@ -1467,7 +1467,7 @@ CompressLazy := [].{
 										# candidate.
 										best_tail_m = U32.from_le_bytes(input, $in_next.plus_wrap($best_len_m).minus_wrap(3)) ?? 0
 										while True {
-											match_at_m = Matchfinder.node_before($in_next, cur_pos, $node4_m)
+											match_at_m = Matchfinder.node_index($base, $node4_m)
 											# Check those four bytes before anything else.
 											# Wrapping arithmetic: positions are far below 2^63, and a checked
 											# add or subtract would put an overflow branch on every candidate.
