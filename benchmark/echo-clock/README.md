@@ -35,9 +35,55 @@ POSIX; Linux link inputs and WebAssembly host clock imports are not supplied.
 
 The example imports the repository README as bytes, compresses it, verifies a
 round trip, and prints the elapsed time. Its level depends on a runtime clock
-reading to prevent compile-time compression. It is a usage example, not the
-Silesia measurement procedure; existing benchmark CSVs still describe the
-previous basic-cli harness.
+reading to prevent compile-time compression.
+
+## Embedded-input measurements
+
+`measure.py` builds a C and a Roc executable for each Silesia file. Both embed
+the original input bytes and call mimalloc directly. Roc imports the inputs
+and the expected compressed streams; it needs no runtime file API. The C
+driver uses the pinned libdeflate checkout supplied on the command line.
+
+```sh
+python3 benchmark/echo-clock/measure.py build \
+  --roc /absolute/path/to/roc \
+  --corpus /absolute/path/to/silesia-files \
+  --libdeflate /absolute/path/to/libdeflate \
+  --out /absolute/path/to/results
+python3 benchmark/echo-clock/measure.py run \
+  --roc /absolute/path/to/roc \
+  --corpus /absolute/path/to/silesia-files \
+  --libdeflate /absolute/path/to/libdeflate \
+  --out /absolute/path/to/results
+```
+
+Defaults are all 12 files, levels 1–12, three rounds, and five repetitions per
+case per round. `--files`, `--levels`, `--rounds`, and `--reps` can select a
+smaller experiment. The files, levels, and repetitions are fixed when building;
+`run` reads them from `build.json`. `--rounds` controls the measurement run.
+Builds use a fixed staging path and disable the Roc compilation cache. Run
+builds serially, and finish builds and other CPU-intensive work before timing.
+
+Each engine warms up and verifies decompression before timing. Every measured
+compression is checked outside the timed interval: Roc must reproduce
+libdeflate's exact bytes, and C must reproduce its warmup output. Both reuse an
+output buffer. C also reuses its compressor object; Roc uses `compress_into`,
+which creates its internal scratch storage per call. Those are the respective
+library APIs, and internal Roc allocations remain inside the timed region.
+
+The first Roc level depends on the clock to prevent compile-time compression;
+every requested level still runs once per process. The runner alternates which
+engine runs first across rounds. It records every observation in `timings.csv`,
+keeps process output in `raw/`, and writes source, compiler, executable, corpus,
+and reference hashes in `build.json`. `run.json` identifies the build, round
+count, start/end times, and sample count. The runner rejects missing, duplicate,
+or unexpected samples and changed inputs or executables.
+
+`summary.csv` compares each case's median elapsed time. Its gap is
+`100 * (Roc median / C median - 1)`; positive means Roc takes longer. These
+embedded-input measurements form a new benchmark series. Earlier CSVs from
+the basic-cli harness retain their original provenance and should be identified
+separately when comparing results.
 
 Run the focused checks with:
 
