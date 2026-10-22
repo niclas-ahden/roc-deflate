@@ -387,9 +387,11 @@ CompressOptimal := [].{
 		}
 	}
 
-	## The path a min-cost search chose: for each position, the item that
-	## starts the cheapest way of finishing the block from there.
-	PathResult : { node_cost : List(U32), node_item : List(U32) }
+	## The path a min-cost search chose: for each position, the cost of the
+	## cheapest way of finishing the block from there in a node's low half and
+	## the item that starts it in the high half. One list rather than two keeps
+	## the search's per-position append to a single cursor and a single store.
+	PathResult : { nodes : List(U64) }
 
 	## The symbols a path uses and the Huffman codes built for them.
 	TallyResult : {
@@ -411,12 +413,12 @@ CompressOptimal := [].{
 	## is considered, which is what makes that scan linear in the number of
 	## matches rather than quadratic.
 	##
-	## The node tables are appended in that same order, so node `n` sits at
-	## index `top - n` (see `node_top`): a position's node comes after every
-	## later position's, which is exactly what its cost scan reads. The tables
-	## keep their capacity from block to block and are never initialized.
-	find_min_cost_path : U64, List(U32), U64, List(U32), List(U32), List(U32), List(U32), List(U32) -> PathResult
-	find_min_cost_path = |block_length, cache, cache_end, node_cost_0, node_item_0, cost_literal, cost_length, cost_offset_slot| {
+	## The nodes are appended in that same order, so node `n` sits at index
+	## `top - n` (see `node_top`): a position's node comes after every later
+	## position's, which is exactly what its cost scan reads. The node list
+	## keeps its capacity from block to block and is never initialized.
+	find_min_cost_path : U64, List(U32), U64, List(U64), List(U32), List(U32), List(U32) -> PathResult
+	find_min_cost_path = |block_length, cache, cache_end, nodes_0, cost_literal, cost_length, cost_offset_slot| {
 		top = CompressOptimal.node_top(block_length)
 		# The length table has one cost per match length. Stating its size here
 		# lets every per-length read below skip its bounds test.
@@ -424,26 +426,23 @@ CompressOptimal := [].{
 			crash "CompressOptimal.find_min_cost_path: length cost table too short"
 		} else {
 		}
-		var $node_cost = List.clear(node_cost_0)
-		var $node_item = List.clear(node_item_0)
+		var $nodes = List.clear(nodes_0)
 
 		# Make the block really end where it should, even though matches found
 		# near the end may reach past it: every node past the end costs too
 		# much to ever be chosen.
 		var $guard = top
 		while $guard != block_length {
-			$node_cost = List.append($node_cost, 0x80000000)
-			$node_item = List.append($node_item, 0)
+			$nodes = List.append($nodes, 0x80000000)
 			$guard = $guard.minus_wrap(1)
 		}
-		$node_cost = List.append($node_cost, 0)
-		$node_item = List.append($node_item, 0)
-		# Node `n` lives at `List.len($node_cost) - (n - cur)` while the cursor
-		# is at `cur`, and a match reaches at most `max_match_len` nodes ahead,
-		# so the tables hold at least that many entries from here on: with that
+		$nodes = List.append($nodes, 0)
+		# Node `n` lives at `List.len($nodes) - (n - cur)` while the cursor is
+		# at `cur`, and a match reaches at most `max_match_len` nodes ahead, so
+		# the list holds at least that many entries from here on: with that
 		# stated once, every node read below is provably in bounds.
-		if List.len($node_cost) < DeflateTables.max_match_len {
-			crash "CompressOptimal.find_min_cost_path: node tables too short"
+		if List.len($nodes) < DeflateTables.max_match_len {
+			crash "CompressOptimal.find_min_cost_path: node list too short"
 		} else {
 		}
 
@@ -461,7 +460,7 @@ CompressOptimal := [].{
 			literal = (List.get(cache, $cp) ?? 0).shr_zf_wrap(16).to_u64()
 
 			# A literal is always available, so it seeds the comparison.
-			var $best = (List.get(cost_literal, literal) ?? 0).plus_wrap(List.get($node_cost, List.len($node_cost).minus_wrap(1)) ?? 0)
+			var $best = (List.get(cost_literal, literal) ?? 0).plus_wrap((List.get($nodes, List.len($nodes).minus_wrap(1)) ?? 0).to_u32_wrap())
 			var $item = literal.to_u32_wrap().shl_wrap(CompressOptimal.optimum_offset_shift).bitwise_or(1)
 
 			if num_matches != 0 {
@@ -486,7 +485,7 @@ CompressOptimal := [].{
 						len = $k.plus_wrap(DeflateTables.min_match_len)
 						cost_to_end = offset_cost
 							.plus_wrap(List.get(cost_length, len) ?? 0)
-							.plus_wrap(List.get($node_cost, List.len($node_cost).minus_wrap(len)) ?? 0)
+							.plus_wrap((List.get($nodes, List.len($nodes).minus_wrap(len)) ?? 0).to_u32_wrap())
 						if cost_to_end < $best {
 							$best = cost_to_end
 							$item = len.to_u32_wrap()
@@ -501,11 +500,10 @@ CompressOptimal := [].{
 			} else {
 			}
 
-			$node_cost = List.append($node_cost, $best)
-			$node_item = List.append($node_item, $item)
+			$nodes = List.append($nodes, $best.to_u64().bitwise_or($item.to_u64().shl_wrap(32)))
 		}
 
-		{ node_cost: $node_cost, node_item: $node_item }
+		{ nodes: $nodes }
 	}
 
 	## The index of node 0 in a path's node tables, which hold node `n` at
@@ -523,8 +521,8 @@ CompressOptimal := [].{
 
 	## Count the symbols a chosen path uses and build the Huffman codes for
 	## them, walking the path forwards this time.
-	tally_and_build_codes : List(U32), U64 -> TallyResult
-	tally_and_build_codes = |node_item, block_length| {
+	tally_and_build_codes : List(U64), U64 -> TallyResult
+	tally_and_build_codes = |nodes, block_length| {
 		# Each list covers every index its lookup can produce, not just the
 		# alphabet: a literal is a byte, the length slot is a byte added to 257,
 		# and the offset slot is a byte plus 14, so the counts need no bounds
@@ -538,7 +536,7 @@ CompressOptimal := [].{
 		# branch on every item.
 		var $at = 0.U64
 		while $at != block_length {
-			item = List.get(node_item, top.minus_wrap($at)) ?? 0
+			item = (List.get(nodes, top.minus_wrap($at)) ?? 0).shr_zf_wrap(32).to_u32_wrap()
 			length = item.bitwise_and(CompressOptimal.optimum_len_mask).to_u64()
 			offset = item.shr_zf_wrap(CompressOptimal.optimum_offset_shift).to_u64()
 			if length == 1 {
@@ -719,8 +717,7 @@ CompressOptimal := [].{
 
 		var $cache = List.repeat(0.U32, CompressOptimal.match_cache_size)
 		var $cache_ptr = 0.U64
-		var $node_cost = List.with_capacity(CompressOptimal.optimum_nodes_size)
-		var $node_item = List.with_capacity(CompressOptimal.optimum_nodes_size)
+		var $nodes = List.with_capacity(CompressOptimal.optimum_nodes_size)
 
 		var $cost_literal = List.repeat(0.U32, DeflateTables.num_literals)
 		var $cost_length = List.repeat(0.U32, DeflateTables.max_match_len + 1)
@@ -995,15 +992,13 @@ CompressOptimal := [].{
 					block_length,
 					$cache,
 					$cache_end,
-					$node_cost,
-					$node_item,
+					$nodes,
 					sc.literal,
 					sc.length,
 					sc.offset_slot,
 				)
-				$node_cost = path.node_cost
-				$node_item = path.node_item
-				$static_cost = (List.last($node_cost) ?? 0).to_u64() // CompressOptimal.bit_cost + 7
+				$nodes = path.nodes
+				$static_cost = (List.last($nodes) ?? 0).to_u32_wrap().to_u64() // CompressOptimal.bit_cost + 7
 			} else {
 			}
 
@@ -1059,15 +1054,13 @@ CompressOptimal := [].{
 					block_length,
 					$cache,
 					$cache_end,
-					$node_cost,
-					$node_item,
+					$nodes,
 					$cost_literal,
 					$cost_length,
 					$cost_offset_slot,
 				)
-				$node_cost = path.node_cost
-				$node_item = path.node_item
-				tallied = CompressOptimal.tally_and_build_codes($node_item, block_length)
+				$nodes = path.nodes
+				tallied = CompressOptimal.tally_and_build_codes($nodes, block_length)
 				$freqs_litlen = tallied.freqs_litlen
 				$freqs_offset = tallied.freqs_offset
 				$litlen_lens = tallied.litlen_lens
@@ -1157,15 +1150,13 @@ CompressOptimal := [].{
 						block_length,
 						$cache,
 						$cache_end,
-						$node_cost,
-						$node_item,
+						$nodes,
 						$cost_literal,
 						$cost_length,
 						$cost_offset_slot,
 					)
-					$node_cost = path.node_cost
-					$node_item = path.node_item
-					tallied = CompressOptimal.tally_and_build_codes($node_item, block_length)
+					$nodes = path.nodes
+					tallied = CompressOptimal.tally_and_build_codes($nodes, block_length)
 					$freqs_litlen = tallied.freqs_litlen
 					$freqs_offset = tallied.freqs_offset
 					$litlen_lens = tallied.litlen_lens
@@ -1183,15 +1174,13 @@ CompressOptimal := [].{
 					block_length,
 					$cache,
 					$cache_end,
-					$node_cost,
-					$node_item,
+					$nodes,
 					$cost_literal,
 					$cost_length,
 					$cost_offset_slot,
 				)
-				$node_cost = path.node_cost
-				$node_item = path.node_item
-				tallied = CompressOptimal.tally_and_build_codes($node_item, block_length)
+				$nodes = path.nodes
+				tallied = CompressOptimal.tally_and_build_codes($nodes, block_length)
 				$freqs_litlen = tallied.freqs_litlen
 				$freqs_offset = tallied.freqs_offset
 				$litlen_lens = tallied.litlen_lens
@@ -1229,7 +1218,7 @@ CompressOptimal := [].{
 				$s_litlen_codewords,
 				$s_offset_lens,
 				$s_offset_codewords,
-				$node_item,
+				$nodes,
 				$use_items,
 				$is_final,
 			)
@@ -1237,7 +1226,7 @@ CompressOptimal := [].{
 			$bitbuf = flushed.bitbuf
 			$bitcount = flushed.bitcount
 			$seqs = flushed.seqs
-			$node_item = flushed.items
+			$nodes = flushed.items
 			$s_litlen_lens = flushed.static_litlen_lens
 			$s_litlen_codewords = flushed.static_litlen_codewords
 			$s_offset_lens = flushed.static_offset_lens

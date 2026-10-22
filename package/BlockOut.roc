@@ -286,7 +286,7 @@ BlockOut := [].{
 		bitbuf : U64,
 		bitcount : U64,
 		seqs : List(Sequence),
-		items : List(U32),
+		items : List(U64),
 		litlen_lens : List(U8),
 		litlen_codewords : List(U32),
 		offset_lens : List(U8),
@@ -497,9 +497,9 @@ BlockOut := [].{
 	## The chosen literals and matches arrive one of two ways. The greedy and
 	## lazy parsers hand over `seqs`, runs of literals each followed by a match,
 	## with the literals themselves read back out of the input. The near-optimal
-	## parser hands over `items`, one packed entry per position along its chosen
-	## path. `use_items` selects between them.
-	flush_block : List(U8), U64, U64, List(U8), U64, U64, List(BlockOut.Sequence), List(U32), List(U32), List(U8), List(U32), List(U8), List(U32), List(U8), List(U32), List(U8), List(U32), List(U32), U64, U64 -> FlushResult
+	## parser hands over `items`, its path nodes, each with the packed entry for
+	## its position in the high half. `use_items` selects between them.
+	flush_block : List(U8), U64, U64, List(U8), U64, U64, List(BlockOut.Sequence), List(U32), List(U32), List(U8), List(U32), List(U8), List(U32), List(U8), List(U32), List(U8), List(U32), List(U64), U64, U64 -> FlushResult
 	flush_block = |out_0, bitbuf_0, bitcount_0, input, block_begin, block_length_0, seqs, freqs_litlen, freqs_offset, litlen_lens, litlen_codewords, offset_lens, offset_codewords, s_litlen_lens, s_litlen_codewords, s_offset_lens, s_offset_codewords, items, use_items, is_final| {
 		precode = BlockOut.precompute_huffman_header(litlen_lens, offset_lens)
 
@@ -711,7 +711,7 @@ BlockOut := [].{
 			items_top = List.len(items).minus_wrap(1)
 			var $item_at = if use_items == 1 { 0.U64 } else { block_length }
 			while $item_at != block_length {
-				item = List.get(items, items_top.minus_wrap($item_at)) ?? 0
+				item = (List.get(items, items_top.minus_wrap($item_at)) ?? 0).shr_zf_wrap(32).to_u32_wrap()
 				length = item.bitwise_and(0x1FF).to_u64()
 				payload = item.shr_zf_wrap(9).to_u64()
 				if length == 1 {
