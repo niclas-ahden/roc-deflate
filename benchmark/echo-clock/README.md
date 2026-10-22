@@ -71,8 +71,9 @@ output buffer. C also reuses its compressor object; Roc uses `compress_into`,
 which creates its internal scratch storage per call. Those are the respective
 library APIs, and internal Roc allocations remain inside the timed region.
 
-The first Roc level depends on the clock to prevent compile-time compression;
-every requested level still runs once per process. The runner alternates which
+Both engines run all requested levels in one process per file, choosing the
+first level from the clock and visiting each level once. The runtime choice
+also prevents compile-time compression in Roc. The runner alternates which
 engine runs first across rounds. It records every observation in `timings.csv`,
 keeps process output in `raw/`, and writes source, compiler, executable, corpus,
 and reference hashes in `build.json`. `run.json` identifies the build, round

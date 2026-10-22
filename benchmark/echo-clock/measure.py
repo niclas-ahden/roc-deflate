@@ -40,6 +40,32 @@ static unsigned char *slurp(const char *path, size_t *len) {{
         source = source.replace('        if (i == 0 || ns < best) best = ns;', '''        if (sz != expected_len || memcmp(out, expected, sz)) { fprintf(stderr, "output changed\\n"); return 6; }
         printf("rep\\t%d\\t%d\\t%lld\\t%zu\\n", level, i, ns, sz);
         if (i == 0 || ns < best) best = ns;''')
+        source = source.replace('int main(', 'static int run_one(')
+        source = source.replace('    return 0;\n}', '''    libdeflate_free_compressor(c);
+    libdeflate_free_decompressor(d);
+    mi_free(out); mi_free(back); mi_free(expected);
+    return 0;
+}''')
+        source += '''
+int main(int argc, char **argv) {
+    if (argc == 3 && strcmp(argv[1], "batch") == 0) {
+        const int levels[] = { LEVELS };
+        const size_t count = sizeof(levels) / sizeof(levels[0]);
+        struct timespec order_time;
+        clock_gettime(CLOCK_MONOTONIC, &order_time);
+        size_t first = (unsigned long)order_time.tv_nsec % count;
+        for (size_t i = 0; i < count; ++i) {
+            char level[16];
+            snprintf(level, sizeof(level), "%d", levels[(first + i) % count]);
+            char *args[] = {argv[0], "embedded", level, argv[2]};
+            int result = run_one(4, args);
+            if (result) return result;
+        }
+        return 0;
+    }
+    return run_one(argc, argv);
+}
+'''.replace('LEVELS', ', '.join(map(str, args.levels)))
         (directory / 'cbench.c').write_text(source)
         run(['cc', '-O3', '-DMI_STATIC_LIB', '-I', mi / 'include', '-I', args.libdeflate,
              directory / 'cbench.c', directory / 'input.s', *libs, PLATFORM / f'targets/{target}/mimalloc.o', '-o', directory / 'cbench'])
@@ -70,7 +96,7 @@ static unsigned char *slurp(const char *path, size_t *len) {{
         library_diff=run(['git', '-C', ROOT, 'diff', '--', 'package'], capture_output=True, text=True).stdout,
         libdeflate=run(['git', '-C', args.libdeflate, 'rev-parse', 'HEAD'], capture_output=True, text=True).stdout.strip(),
         libdeflate_diff=run(['git', '-C', args.libdeflate, 'diff'], capture_output=True, text=True).stdout,
-        files=args.files, levels=args.levels, reps=args.reps,
+        files=args.files, levels=args.levels, reps=args.reps, driver_protocol='per-file-batch-v1',
         corpus_sha256={f:digest(args.corpus / f) for f in args.files},
         reference_sha256={f:{str(l):digest(out / f / f'level-{l}.deflate') for l in args.levels} for f in args.files},
         executable_sha256={f:{e:digest(args.out / f / e) for e in ['cbench','rocbench']} for f in args.files},
@@ -82,6 +108,7 @@ static unsigned char *slurp(const char *path, size_t *len) {{
 
 def measure(args):
     meta = json.loads((args.out / 'build.json').read_text())
+    assert meta['driver_protocol'] == 'per-file-batch-v1'
     assert args.rounds > 0
     for file in meta['files']:
         assert digest(args.corpus / file) == meta['corpus_sha256'][file]
@@ -103,14 +130,14 @@ def measure(args):
                 for engine in (['libdeflate','roc-deflate'] if round % 2 else ['roc-deflate','libdeflate']):
                     binary = directory / ('cbench' if engine == 'libdeflate' else 'rocbench')
                     assert digest(binary) == meta['executable_sha256'][file][binary.name]
-                    commands = [[binary, 'embedded', l, meta['reps']] for l in meta['levels']] if engine == 'libdeflate' else [[binary]]
+                    commands = [[binary, 'batch', meta['reps']]] if engine == 'libdeflate' else [[binary]]
                     for command_index, cmd in enumerate(commands):
                         output = run(cmd, capture_output=True, text=True, env={k:v for k,v in os.environ.items() if k not in ['DYLD_INSERT_LIBRARIES','LD_PRELOAD']}).stdout
                         (raw / f'{round}-{file}-{engine}-{command_index}.txt').write_text(output)
                         samples = [line.split('\t') for line in output.splitlines() if line.startswith('rep\t')]
-                        expected_samples = meta['reps'] if engine == 'libdeflate' else meta['reps'] * len(meta['levels'])
+                        expected_samples = meta['reps'] * len(meta['levels'])
                         assert len(samples) == expected_samples, output
-                        levels = [int(cmd[2])] if engine == 'libdeflate' else meta['levels']
+                        levels = meta['levels']
                         assert {(int(s[1]),int(s[2])) for s in samples} == {(l,r) for l in levels for r in range(meta['reps'])}
                         for _, level, rep, ns, size in samples:
                             n = (args.corpus / file).stat().st_size
