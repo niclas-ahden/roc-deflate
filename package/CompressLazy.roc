@@ -493,6 +493,14 @@ CompressLazy := [].{
 
 						# Now look only for matches longer than the one in hand.
 						while $done == 0 {
+							# The walk runs only while the match in hand is at least three bytes
+							# and shorter than `nice_len`, which is at most `max_len`. Stating that
+							# bounds the four-byte reads that end where the match in hand does, at
+							# the current position and at each candidate before it.
+							if $best_len < 3 or $best_len >= $nice_len or $nice_len > $max_len {
+								crash "CompressLazy: longer-match walk outside its bounds"
+							} else {
+							}
 							var $cand_at = 0.U64
 							# The four bytes ending just past the current best length are
 							# what a longer match must agree on. The best length holds for
@@ -1020,6 +1028,14 @@ CompressLazy := [].{
 
 					# Now look only for matches longer than the one in hand.
 					while $done_s == 0 {
+						# The walk runs only while the match in hand is at least three bytes
+						# and shorter than `nice_len`, which is at most `max_len`. Stating that
+						# bounds the four-byte reads that end where the match in hand does, at
+						# the current position and at each candidate before it.
+						if $best_len_s < 3 or $best_len_s >= $nice_len or $nice_len > $max_len {
+							crash "CompressLazy: longer-match walk outside its bounds"
+						} else {
+						}
 						var $cand_at_s = 0.U64
 						# The four bytes ending just past the current best length are
 						# what a longer match must agree on. The best length holds for
@@ -1249,6 +1265,14 @@ CompressLazy := [].{
 
 								# Now look only for matches longer than the one in hand.
 								while $done_n == 0 {
+									# The walk runs only while the match in hand is at least three bytes
+									# and shorter than `nice_len`, which is at most `max_len`. Stating that
+									# bounds the four-byte reads that end where the match in hand does, at
+									# the current position and at each candidate before it.
+									if $best_len_n < 3 or $best_len_n >= $nice_len or $nice_len > $max_len {
+										crash "CompressLazy: longer-match walk outside its bounds"
+									} else {
+									}
 									var $cand_at_n = 0.U64
 									# The four bytes ending just past the current best length are
 									# what a longer match must agree on. The best length holds for
@@ -1467,6 +1491,14 @@ CompressLazy := [].{
 
 									# Now look only for matches longer than the one in hand.
 									while $done_m == 0 {
+										# The walk runs only while the match in hand is at least three bytes
+										# and shorter than `nice_len`, which is at most `max_len`. Stating that
+										# bounds the four-byte reads that end where the match in hand does, at
+										# the current position and at each candidate before it.
+										if $best_len_m < 3 or $best_len_m >= $nice_len or $nice_len > $max_len {
+											crash "CompressLazy: longer-match walk outside its bounds"
+										} else {
+										}
 										var $cand_at_m = 0.U64
 										# The four bytes ending just past the current best length are
 										# what a longer match must agree on. The best length holds for
