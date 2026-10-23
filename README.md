@@ -4,6 +4,7 @@ DEFLATE (RFC 1951) compression and decompression in pure Roc.
 
 - `Deflate.compress` produces a raw DEFLATE stream any inflate implementation can read, at a level from 0 to 12.
 - `Deflate.decompress` reads all three DEFLATE block types (stored, fixed Huffman, dynamic Huffman), so it handles streams produced by `zlib`, `gzip`, and ZIP tools.
+- `Deflate.compress_into` and `Deflate.decompress_into` append to a list you pass in, so one buffer can be emptied and reused across streams instead of allocating a new one for each.
 
 Both are ports of [libdeflate](https://github.com/ebiggers/libdeflate), and the compressor is faithful enough that it produces byte-identical output to libdeflate at every level.
 

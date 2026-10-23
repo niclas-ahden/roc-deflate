@@ -39,12 +39,13 @@ Matchfinder := [].{
 	## node already in the first window stays permanently out of it.
 	rebase_nodes : List(U16) -> List(U16)
 	rebase_nodes = |table|
-		List.map(table, |v| if v >= 32768 { v.minus_wrap(32768) } else { 0 })
+		List.map(table, |v| v.minus_saturated(32768))
 
 	## Absolute input index of a biased node.
 	node_index : U64, U16 -> U64
 	node_index = |in_base, node|
 		in_base.plus_wrap(node.to_u64()).minus_wrap(Matchfinder.node_bias)
+
 
 	## Number of bytes at `match_at` that equal the bytes at `str_at`, counting
 	## the `start_len` bytes the caller already matched and stopping at

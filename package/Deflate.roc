@@ -66,24 +66,37 @@ Deflate := [].{
 	##
 	## This never fails. It crashes only on a bug in this package.
 	compress : List(U8), Level -> List(U8)
-	compress = |input, chosen| {
+	compress = |input, chosen|
+		Deflate.compress_into(input, chosen, [])
+
+	## Compress bytes into a raw DEFLATE stream at the given level, appending
+	## the stream to `out`.
+	##
+	## The compressor reserves `compress_bound` bytes past what `out` holds
+	## before writing, so passing a list with that much spare capacity means
+	## it never reallocates, and a returned list can be emptied with its
+	## capacity kept and passed back in for the next stream. Reusing one
+	## buffer that way also reuses its memory, which a fresh list for every
+	## stream has to fetch from the system again.
+	compress_into : List(U8), Level, List(U8) -> List(U8)
+	compress_into = |input, chosen, out| {
 		level = chosen.to_u64()
 		# Level 0 never compresses. Above it, inputs this short are not worth
 		# trying to compress, and the higher the level, the shorter an input it
 		# still tries on (libdeflate's `max_passthrough_size`).
 		max_passthrough = if level == 0 { 18446744073709551615 } else { 55 - 4 * level }
 		if List.len(input) <= max_passthrough {
-			store_uncompressed(input)
+			store_uncompressed(input, out)
 		} else if level == 1 {
-			CompressFast.compress(input, 32)
+			CompressFast.compress(input, 32, out)
 		} else if level >= 10 {
-			CompressOptimal.compress(input, optimal_params_for(level))
+			CompressOptimal.compress(input, optimal_params_for(level), out)
 		} else {
 			params = params_for(level)
 			if params.lazy == 0 {
-				CompressLazy.compress_greedy(input, params)
+				CompressLazy.compress_greedy(input, params, out)
 			} else {
-				CompressLazy.compress(input, params)
+				CompressLazy.compress(input, params, out)
 			}
 		}
 	}
@@ -122,10 +135,10 @@ Deflate := [].{
 
 # Emit the input as stored blocks, which is what the format requires even
 # for empty input.
-store_uncompressed : List(U8) -> List(U8)
-store_uncompressed = |input| {
+store_uncompressed : List(U8), List(U8) -> List(U8)
+store_uncompressed = |input, out| {
 	in_end = List.len(input)
-	var $out = List.with_capacity(in_end + 5 * (in_end // 65535 + 1))
+	var $out = List.reserve(out, in_end + 5 * (in_end // 65535 + 1))
 	if in_end == 0 {
 		$out = List.append($out, 1)
 		$out = match 0xFFFF0000.U64.append_le_bytes_to($out, 4) {
@@ -291,6 +304,23 @@ expect {
 	for level in Deflate.Level.all {
 		compressed = Deflate.compress(noise, level)
 		if Deflate.decompress(compressed) != Ok(noise) or List.len(compressed) > Deflate.compress_bound(3000) {
+			$ok = False
+		} else {}
+	}
+	$ok
+}
+
+# `compress_into` appends to what `out` holds, and the stream it appends is
+# the one `compress` returns, at every level, whether or not `out` already
+# has spare capacity.
+expect {
+	text = "the cat, the cow, the crow, then the cricket saw the cow again and again".to_utf8()
+	var $ok = True
+	for level in Deflate.Level.all {
+		alone = Deflate.compress(text, level)
+		appended = Deflate.compress_into(text, level, [7, 8])
+		reused = Deflate.compress_into(text, level, List.with_capacity(Deflate.compress_bound(List.len(text))))
+		if appended != List.concat([7, 8], alone) or reused != alone {
 			$ok = False
 		} else {}
 	}

@@ -145,7 +145,7 @@ edge_lengths : U64 -> List(U64)
 edge_lengths = |extra|
 	List.repeat(0.U64, 65)
 		.map_with_index(|_, i| i)
-		.concat([4999, 5000, 5001, 65535, 65536, 65537, 300000, 300258, 304742, 304743, 304999, 305000, 305001, 609998])
+		.concat([255, 256, 257, 258, 259, 260, 261, 262, 263, 4999, 5000, 5001, 32760, 32761, 32762, 32763, 32764, 32765, 32766, 32767, 32768, 32769, 32770, 32771, 32772, 32773, 32774, 32775, 32776, 65535, 65536, 65537, 300000, 300258, 304742, 304743, 304999, 305000, 305001, 609998])
 		.map(|len| len + extra)
 
 # Bytes from a 64-bit LCG, which no level can compress.
@@ -160,8 +160,8 @@ noise = |len| {
 	$out
 }
 
-# Every input in the edge sweep: each length of zeros, noise, text, and a
-# seven-byte pattern, so each length meets the parsers on runs, on nothing to
+# Every input in the edge sweep: each length of zeros, noise, text, runs, and
+# short periodic patterns, so each length meets the parsers on runs, on nothing to
 # match, on ordinary matches, and on one short offset over and over.
 EdgeCase : { name : Str, bytes : List(U8) }
 
@@ -171,8 +171,12 @@ edge_cases = |extra| {
 	longest = lengths.fold(0, |most, len| most.max(len))
 	sources = [
 		{ shape: "zeros", bytes: List.repeat(0.U8, longest) },
+		# Runs cover every byte value and end in changing bytes, exercising
+		# the hash prefixes that straddle a repeated match's boundary.
+		{ shape: "runs", bytes: List.repeat(0.U8, longest).map_with_index(|_, i| if i % 263 < 258 { (i // 263 % 256).to_u8_wrap() } else { (i % 251).to_u8_wrap() }) },
 		{ shape: "noise", bytes: noise(longest) },
 		{ shape: "text", bytes: TextGen.generate(7, longest) },
+		{ shape: "period2", bytes: List.repeat(0.U8, longest).map_with_index(|_, i| (97 + i % 2).to_u8_wrap()) },
 		{ shape: "pattern", bytes: List.repeat(0.U8, longest).map_with_index(|_, i| (97 + i % 7).to_u8_wrap()) },
 	]
 	var $cases = []
