@@ -15,7 +15,7 @@ View the API documentation at [https://niclas-ahden.github.io/roc-deflate/](http
 ```roc
 app [main!] {
     pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.26.0-rc2/Gj3zVDr3qrQa6aTh7Z1zgUfe9NeBE6R76T5ho3xrc8af.tar.zst",
-    deflate: "https://github.com/niclas-ahden/roc-deflate/releases/download/0.3.0/9d7QRzf6vgYMDqXgTsL5sTh8B475yeL8KUAp8TJKs2Q5.tar.zst",
+    deflate: "https://github.com/niclas-ahden/roc-deflate/releases/download/0.5.1/Cw6pRiwXiLWXafQSc7asFE4wVWQjmaEwXSQW9UAaybpn.tar.zst",
 }
 
 import pf.Stdout
