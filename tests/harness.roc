@@ -21,7 +21,7 @@
 ##
 ##     nix develop -c roc tests/harness.roc
 app [main!] {
-	pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.26.0-rc2/Gj3zVDr3qrQa6aTh7Z1zgUfe9NeBE6R76T5ho3xrc8af.tar.zst",
+	pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.26.0/GddgvsGjiNXrHFW6au5i5dUDbTs8FinQdrgE2Gqmw53t.tar.zst",
 	deflate: "../package/main.roc",
 	crc32: "https://github.com/niclas-ahden/roc-crc32/releases/download/1.0.3/H7PGfAdWAHVHcw2RHGRkXzEZzzNjhmYm8vcDMmYvogw7.tar.zst",
 }
@@ -30,6 +30,7 @@ import pf.Stdout
 import pf.Cmd
 import pf.Path
 import pf.Env
+import pf.System
 import pf.IOErr
 import pf.OsStr
 import deflate.Deflate
@@ -72,8 +73,8 @@ main! = |args| {
 	# CI's Windows runners have no libdeflate-gzip to install, so Windows skips
 	# the comparison. Everywhere else a missing libdeflate-gzip is a failure.
 	libdeflate =
-		match Env.platform!().os {
-			WINDOWS => False
+		match System.target!().os() {
+			Windows(_) => False
 			_ => True
 		}
 
@@ -101,7 +102,7 @@ main! = |args| {
 
 # Compress the corpus with libdeflate's own gzip at the same level, and confirm
 # our raw stream is the same bytes as the one inside libdeflate's container.
-check_identical! : List(U8), OsStr, Deflate.Level => Try({}, [Exit(I32), StdoutErr(IOErr)])
+check_identical! : List(U8), OsStr, Deflate.Level => Try({}, [Exit(I32), Interrupted, StdoutErr(IOErr)])
 check_identical! = |corpus, corpus_os, level| {
 	theirs = libdeflate_gzip!([OsStr.from_str("-c"), corpus_os], level.to_u64())?.drop_first(10).drop_last(8)
 	ours = Deflate.compress(corpus, level)
@@ -114,7 +115,7 @@ check_identical! = |corpus, corpus_os, level| {
 }
 
 # Run libdeflate-gzip at a level and return what it wrote to stdout.
-libdeflate_gzip! : List(OsStr), U64 => Try(List(U8), [Exit(I32), StdoutErr(IOErr)])
+libdeflate_gzip! : List(OsStr), U64 => Try(List(U8), [Exit(I32), Interrupted, StdoutErr(IOErr)])
 libdeflate_gzip! = |arguments, level| {
 	output = match Cmd.new(OsStr.from_str("libdeflate-gzip")).args([OsStr.from_str("-${level.to_str()}")].concat(arguments)).run!() {
 		Ok(o) => o
@@ -192,7 +193,7 @@ edge_cases = |extra| {
 # whole set in one run per level, writing each file's `.gz` next to it.
 # libdeflate-gzip has no level 0, so level 0 is held to the round trip and
 # the bound only, and so is every level when `libdeflate` is False.
-check_edges! : Path.Path, U64, Bool => Try({}, [Exit(I32), StdoutErr(IOErr)])
+check_edges! : Path.Path, U64, Bool => Try({}, [Exit(I32), Interrupted, StdoutErr(IOErr)])
 check_edges! = |tmp, extra, libdeflate| {
 	dir = tmp.join("roc_deflate_harness_edges")
 	Path.create_all!(dir) ? |_| Exit(1)
@@ -247,7 +248,7 @@ outcome = |result|
 # decode to something else or fail, but a crash ends this program and fails
 # the run. Then check decompress_into appends without reaching into what it
 # was handed.
-check_decoder_errors! : List(U8), Path.Path => Try({}, [Exit(I32), StdoutErr(IOErr)])
+check_decoder_errors! : List(U8), Path.Path => Try({}, [Exit(I32), Interrupted, StdoutErr(IOErr)])
 check_decoder_errors! = |sample, tmp| {
 	sample_path = tmp.join("roc_deflate_harness_sample.bin")
 	Path.write_bytes!(sample_path, sample) ? |_| Exit(1)
@@ -306,7 +307,7 @@ check_decoder_errors! = |sample, tmp| {
 
 # Compress and then decompress with our own code, and confirm the bytes come
 # back unchanged.
-check_roundtrip! : List(U8), Deflate.Level => Try({}, [Exit(I32), StdoutErr(IOErr)])
+check_roundtrip! : List(U8), Deflate.Level => Try({}, [Exit(I32), Interrupted, StdoutErr(IOErr)])
 check_roundtrip! = |corpus, level| {
 	deflated = Deflate.compress(corpus, level)
 	back = Deflate.decompress(deflated) ? |_| Exit(1)
@@ -320,7 +321,7 @@ check_roundtrip! = |corpus, level| {
 
 # Compress with our encoder, wrap in a gzip member, and confirm real gzip
 # decodes it back to the exact corpus.
-check_forward! : List(U8), Path.Path, Str, Deflate.Level => Try({}, [Exit(I32), StdoutErr(IOErr)])
+check_forward! : List(U8), Path.Path, Str, Deflate.Level => Try({}, [Exit(I32), Interrupted, StdoutErr(IOErr)])
 check_forward! = |corpus, tmp, name, level| {
 	deflated = Deflate.compress(corpus, level)
 	container = gzip_wrap(deflated, Crc32.checksum(corpus), corpus.len())
@@ -346,7 +347,7 @@ check_forward! = |corpus, tmp, name, level| {
 
 # Compress the corpus with real gzip, strip the container, and confirm our
 # decompressor reproduces the corpus from the raw DEFLATE stream.
-check_reverse! : List(U8), OsStr, Str => Try({}, [Exit(I32), StdoutErr(IOErr)])
+check_reverse! : List(U8), OsStr, Str => Try({}, [Exit(I32), Interrupted, StdoutErr(IOErr)])
 check_reverse! = |corpus, corpus_os, level| {
 	output = Cmd.new(OsStr.from_str("gzip")).args([OsStr.from_str("-n"), OsStr.from_str(level), OsStr.from_str("-c"), corpus_os]).run!() ? |_| Exit(1)
 	res = output.require_success() ? |_| Exit(1)

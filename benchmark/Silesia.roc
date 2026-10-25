@@ -20,7 +20,7 @@ Silesia := [].{
 
 	## Fetch, verify, and extract every file missing from `dir`, creating the
 	## directory first if needed.
-	ensure! : Str => Try({}, [Exit(I32), StdoutErr(IOErr), StderrErr(IOErr)])
+	ensure! : Str => Try({}, [Exit(I32), Interrupted, StdoutErr(IOErr), StderrErr(IOErr)])
 	ensure! = |dir| {
 		Path.create_all!(Path.utf8(dir)) ? |_| Exit(1)
 		for file in files {
@@ -50,7 +50,7 @@ files = [
 
 # Download, verify, and extract one file unless it is already extracted. The
 # hash is checked in-process, so no sha256sum or shasum is needed.
-ensure_one! : Str, { name : Str, sha : Str } => Try({}, [Exit(I32), StdoutErr(IOErr), StderrErr(IOErr)])
+ensure_one! : Str, { name : Str, sha : Str } => Try({}, [Exit(I32), Interrupted, StdoutErr(IOErr), StderrErr(IOErr)])
 ensure_one! = |dir, { name, sha }| {
 	if Path.is_file!(Path.utf8("${dir}/${name}")) ? |_| Exit(1) {
 		return Ok({})
@@ -74,6 +74,6 @@ ensure_one! = |dir, { name, sha }| {
 # Run a command with inherited stdio, failing on a nonzero exit.
 run! : Str, List(Str) => Try({}, [Exit(I32)])
 run! = |program, arguments| {
-	Cmd.new(OsStr.from_str(program)).args(arguments.map(OsStr.from_str)).exec!() ? |_| Exit(1)
+	Cmd.new(OsStr.from_str(program)).args(arguments.map(OsStr.from_str)).call!() ? |_| Exit(1)
 	Ok({})
 }

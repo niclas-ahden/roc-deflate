@@ -20,7 +20,7 @@
 ##
 ##     nix develop -c ./tests.roc
 app [main!] {
-	pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.26.0-rc2/Gj3zVDr3qrQa6aTh7Z1zgUfe9NeBE6R76T5ho3xrc8af.tar.zst",
+	pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.26.0/GddgvsGjiNXrHFW6au5i5dUDbTs8FinQdrgE2Gqmw53t.tar.zst",
 }
 
 import pf.Stdout
@@ -48,6 +48,6 @@ build! = |src, out| run!("roc", ["build", "--opt=speed", src, "--output=${out}"]
 # Run a command with inherited stdio, failing the script on a nonzero exit.
 run! : Str, List(Str) => Try({}, [Exit(I32)])
 run! = |program, arguments| {
-	Cmd.new(OsStr.from_str(program)).args(arguments.map(OsStr.from_str)).exec!() ? |_| Exit(1)
+	Cmd.new(OsStr.from_str(program)).args(arguments.map(OsStr.from_str)).call!() ? |_| Exit(1)
 	Ok({})
 }

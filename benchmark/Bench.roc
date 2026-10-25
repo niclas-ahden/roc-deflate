@@ -11,6 +11,7 @@ import pf.Env
 import pf.Path
 import pf.Stdout
 import pf.Stderr
+import pf.System
 import pf.IOErr
 import pf.OsStr
 import Silesia
@@ -39,7 +40,7 @@ Bench := [].{
 
 	## The positional argument at `index` as a count of at least one, or
 	## `fallback` when it is absent.
-	count! : List(OsStr), U64, U64 => Try(U64, [Exit(I32), StderrErr(IOErr)])
+	count! : List(OsStr), U64, U64 => Try(U64, [Exit(I32), Interrupted, StderrErr(IOErr)])
 	count! = |args, index, fallback| {
 		text = arg(args, index, fallback.to_str())
 		count = U64.from_str(text) ?? 0
@@ -54,7 +55,7 @@ Bench := [].{
 	## The positional argument at `index` as a compression level from 1 to 12,
 	## or `fallback` when it is absent. libdeflate's level 0 only stores, so
 	## there is nothing to compare.
-	level! : List(OsStr), U64, Str => Try(Str, [Exit(I32), StderrErr(IOErr)])
+	level! : List(OsStr), U64, Str => Try(Str, [Exit(I32), Interrupted, StderrErr(IOErr)])
 	level! = |args, index, fallback| {
 		text = arg(args, index, fallback)
 		match U64.from_str(text) {
@@ -77,7 +78,7 @@ Bench := [].{
 	## Find the libdeflate source and fetch the corpus into `<here>/.corpus`.
 	## The source comes from LIBDEFLATE_SRC, which the flake dev shell sets,
 	## or a checkout next to this repo.
-	prepare! : Str => Try(Str, [Exit(I32), StdoutErr(IOErr), StderrErr(IOErr)])
+	prepare! : Str => Try(Str, [Exit(I32), Interrupted, StdoutErr(IOErr), StderrErr(IOErr)])
 	prepare! = |here| {
 		src = var_or!("LIBDEFLATE_SRC", "${here}/../../libdeflate")
 		if !(Path.is_file!(Path.utf8("${src}/libdeflate.h")) ?? False) {
@@ -93,7 +94,7 @@ Bench := [].{
 	## Build the C driver `<here>/<name>.c` into `<here>/.build/<name>` when the
 	## binary is missing or older than its source. libdeflate is compiled in at
 	## -O3, matching what --opt=speed gives the Roc side.
-	build_c! : Str, Str, Str => Try({}, [Exit(I32), StdoutErr(IOErr)])
+	build_c! : Str, Str, Str => Try({}, [Exit(I32), Interrupted, StdoutErr(IOErr)])
 	build_c! = |here, src, name| {
 		out = "${here}/.build/${name}"
 		source = "${here}/${name}.c"
@@ -108,7 +109,7 @@ Bench := [].{
 	## `<here>/.build/<name>`. It is rebuilt when the harness, any package
 	## source, or the compiler itself is newer than the binary, since checking
 	## only the harness silently benchmarks a stale compressor.
-	build_roc! : Str, Str => Try({}, [Exit(I32), StdoutErr(IOErr)])
+	build_roc! : Str, Str => Try({}, [Exit(I32), Interrupted, StdoutErr(IOErr)])
 	build_roc! = |here, name| {
 		roc = var_or!("ROC", "roc")
 		out = "${here}/.build/${name}"
@@ -128,11 +129,11 @@ Bench := [].{
 	## is not part of the comparison. MIMALLOC_LIB, which the flake dev shell
 	## sets, comes first, then ldconfig on Linux or Homebrew on macOS. Only the
 	## timed runs get it, not the builds.
-	mimalloc! : () => Try(List((OsStr, OsStr)), [StderrErr(IOErr)])
+	mimalloc! : () => Try(List((OsStr, OsStr)), [Interrupted, StderrErr(IOErr)])
 	mimalloc! = || {
 		macos =
-			match Env.platform!().os {
-				MACOS => True
+			match System.target!().os() {
+				MacOS(_) => True
 				_ => False
 			}
 		from_env = var_or!("MIMALLOC_LIB", "")
@@ -156,7 +157,7 @@ Bench := [].{
 	## Run two drivers `rounds` times, interleaved, and keep each one's best
 	## MB/s. Interleaving spreads thermal drift evenly over both sides. Each
 	## command is a program followed by its arguments.
-	best_of! : U64, List((OsStr, OsStr)), List(Str), List(Str) => Try({ c : Dec, roc : Dec }, [Exit(I32), StderrErr(IOErr), BadDriverOutput(Str)])
+	best_of! : U64, List((OsStr, OsStr)), List(Str), List(Str) => Try({ c : Dec, roc : Dec }, [Exit(I32), Interrupted, StderrErr(IOErr), BadDriverOutput(Str)])
 	best_of! = |rounds, env, c_command, roc_command| {
 		var $c = 0.Dec
 		var $roc = 0.Dec
@@ -212,7 +213,7 @@ Bench := [].{
 	## Run a command with inherited stdio, failing on a nonzero exit.
 	run! : Str, List(Str) => Try({}, [Exit(I32)])
 	run! = |program, arguments| {
-		Cmd.new(OsStr.from_str(program)).args(arguments.map(OsStr.from_str)).exec!() ? |_| Exit(1)
+		Cmd.new(OsStr.from_str(program)).args(arguments.map(OsStr.from_str)).call!() ? |_| Exit(1)
 		Ok({})
 	}
 }
@@ -309,7 +310,7 @@ ldconfig_mimalloc! = || {
 # Run a driver and read the MB/s from the third field of the tab-separated
 # line it prints. A failing driver's stdout is passed on, since that is where
 # the harnesses report a verification failure.
-mbps! : List(Str), List((OsStr, OsStr)) => Try(Dec, [Exit(I32), StderrErr(IOErr), BadDriverOutput(Str)])
+mbps! : List(Str), List((OsStr, OsStr)) => Try(Dec, [Exit(I32), Interrupted, StderrErr(IOErr), BadDriverOutput(Str)])
 mbps! = |command, env| {
 	cmd = Cmd.new(OsStr.from_str(command.first() ?? "")).args(command.drop_first(1).map(OsStr.from_str)).envs(env)
 	match cmd.capture!() {

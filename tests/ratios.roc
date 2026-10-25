@@ -11,7 +11,7 @@
 ##
 ##     roc build --opt=speed tests/ratios.roc && ./tests/ratios
 app [main!] {
-	pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.26.0-rc2/Gj3zVDr3qrQa6aTh7Z1zgUfe9NeBE6R76T5ho3xrc8af.tar.zst",
+	pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.26.0/GddgvsGjiNXrHFW6au5i5dUDbTs8FinQdrgE2Gqmw53t.tar.zst",
 	deflate: "../package/main.roc",
 }
 
@@ -43,7 +43,7 @@ main! = |_| {
 }
 
 # Compress at one level and fail if the output is larger than the ceiling.
-check! : Str, List(U8), Deflate.Level, U64 => Try({}, [Exit(I32), StdoutErr(IOErr)])
+check! : Str, List(U8), Deflate.Level, U64 => Try({}, [Exit(I32), Interrupted, StdoutErr(IOErr)])
 check! = |name, corpus, level, ceiling| {
 	size = Deflate.compress(corpus, level).len()
 	if size <= ceiling {
