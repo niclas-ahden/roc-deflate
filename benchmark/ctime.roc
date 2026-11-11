@@ -1,5 +1,5 @@
 app [main!] {
-	pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.26.0/GddgvsGjiNXrHFW6au5i5dUDbTs8FinQdrgE2Gqmw53t.tar.zst",
+	pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.27.0/9yjxqdGTP4xSpSEmDazwTmRsehfRZzA19pwEKkR6fj1g.tar.zst",
 	deflate: "../package/main.roc",
 }
 
@@ -26,7 +26,7 @@ main! = |args| {
 	data = Path.read_bytes!(Path.from_os_str(path_os)) ? |_| Exit(5)
 
 	first = Deflate.compress(data, level)
-	back = Deflate.decompress(first) ? |_| Exit(7)
+	back = Deflate.decompress(first, {}) ? |_| Exit(7)
 	if back != data {
 		Stdout.line!("VERIFY FAIL") ? |_| Exit(8)
 		return Err(Exit(8))

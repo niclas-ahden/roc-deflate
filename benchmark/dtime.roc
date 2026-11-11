@@ -1,5 +1,5 @@
 app [main!] {
-	pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.26.0/GddgvsGjiNXrHFW6au5i5dUDbTs8FinQdrgE2Gqmw53t.tar.zst",
+	pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.27.0/9yjxqdGTP4xSpSEmDazwTmRsehfRZzA19pwEKkR6fj1g.tar.zst",
 	deflate: "../package/main.roc",
 }
 
@@ -12,10 +12,11 @@ import deflate.Deflate
 # output, mirroring dbench's caller-allocated exact-size buffer.
 run_once : List(U8), List(U8) -> U64
 run_once = |bytes, buf|
-	match Deflate.decompress_into(bytes, buf) {
+	match Deflate.decompress_into(bytes, buf, {}) {
 		Ok(out) => List.len(out)
 		Err(CorruptData) => 1
 		Err(UnexpectedEnd) => 2
+		Err(OutputLimitExceeded) => 3
 	}
 
 # usage: dtime <stream.deflate> <original> [extra args, one per additional rep]
@@ -28,7 +29,7 @@ main! = |args| {
 	stream = Path.read_bytes!(Path.from_os_str(stream_os)) ? |_| Exit(3)
 	orig = Path.read_bytes!(Path.from_os_str(orig_os)) ? |_| Exit(4)
 
-	first = match Deflate.decompress(stream) {
+	first = match Deflate.decompress(stream, {}) {
 		Ok(out) => out
 		Err(_) => return Err(Exit(5))
 	}

@@ -1,5 +1,5 @@
 app [main!] {
-	pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.26.0/GddgvsGjiNXrHFW6au5i5dUDbTs8FinQdrgE2Gqmw53t.tar.zst",
+	pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.27.0/9yjxqdGTP4xSpSEmDazwTmRsehfRZzA19pwEKkR6fj1g.tar.zst",
 	deflate: "../package/main.roc",
 }
 
@@ -18,7 +18,7 @@ main! = |args| {
 	compressed = Deflate.compress(original, 6)
 	Stdout.line!("Compressed ${original.len().to_str()} bytes to ${compressed.len().to_str()}")?
 
-	match Deflate.decompress(compressed) {
+	match Deflate.decompress(compressed, {}) {
 		Ok(decompressed) =>
 			if decompressed == original {
 				Stdout.line!("Round-trip successful")?
@@ -27,6 +27,7 @@ main! = |args| {
 			}
 		Err(CorruptData) => Stdout.line!("Corrupt DEFLATE stream")?
 		Err(UnexpectedEnd) => Stdout.line!("Truncated DEFLATE stream")?
+		Err(OutputLimitExceeded) => Stdout.line!("DEFLATE stream larger than its bound")?
 	}
 
 	Ok({})

@@ -21,7 +21,7 @@
 ##
 ##     nix develop -c roc tests/harness.roc
 app [main!] {
-	pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.26.0/GddgvsGjiNXrHFW6au5i5dUDbTs8FinQdrgE2Gqmw53t.tar.zst",
+	pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.27.0/9yjxqdGTP4xSpSEmDazwTmRsehfRZzA19pwEKkR6fj1g.tar.zst",
 	deflate: "../package/main.roc",
 	crc32: "https://github.com/niclas-ahden/roc-crc32/releases/download/1.0.3/H7PGfAdWAHVHcw2RHGRkXzEZzzNjhmYm8vcDMmYvogw7.tar.zst",
 }
@@ -36,6 +36,7 @@ import pf.OsStr
 import deflate.Deflate
 import crc32.Crc32
 import TextGen
+import "../fuzz/bomb.deflate" as bomb : List(U8)
 
 main! = |args| {
 	# `+ args.len()` keeps the corpus size runtime-dependent. With a literal
@@ -94,6 +95,16 @@ main! = |args| {
 
 	Stdout.line!("== decoder errors")?
 	check_decoder_errors!(List.sublist(corpus, { start: 0, len: 4096 }), tmp)?
+
+	# fuzz/inflate_bomb.roc decodes a pinned stream, so check it is still what
+	# level 6 makes of 8 MiB of zeros. `+ args.len()` keeps the compression out
+	# of the build, as with the corpus above.
+	Stdout.line!("== fuzz fixture")?
+	if Deflate.compress(List.repeat(0, 8_388_608 + args.len()), 6) != bomb {
+		Stdout.line!("  fuzz/bomb.deflate is not Deflate.compress(List.repeat(0, 8_388_608), 6)")?
+		return Err(Exit(1))
+	}
+	Stdout.line!("  fuzz/bomb.deflate is level 6 on 8 MiB of zeros")?
 
 	Path.delete!(corpus_path) ? |_| Exit(1)
 	Stdout.line!("All interop checks passed")?
@@ -211,7 +222,7 @@ check_edges! = |tmp, extra, libdeflate| {
 		} else {}
 		for c in cases {
 			ours = Deflate.compress(c.bytes, level)
-			if Deflate.decompress(ours) != Ok(c.bytes) {
+			if Deflate.decompress(ours, {}) != Ok(c.bytes) {
 				Stdout.line!("  level ${n.to_str()}, ${c.name}: does not round-trip")?
 				return Err(Exit(1))
 			} else {}
@@ -234,12 +245,13 @@ check_edges! = |tmp, extra, libdeflate| {
 }
 
 # How a decode came out, without printing what it decoded to.
-outcome : Try(List(U8), [CorruptData, UnexpectedEnd]) -> Str
+outcome : Try(List(U8), [CorruptData, UnexpectedEnd, OutputLimitExceeded]) -> Str
 outcome = |result|
 	match result {
 		Ok(_) => "Ok"
 		Err(CorruptData) => "CorruptData"
 		Err(UnexpectedEnd) => "UnexpectedEnd"
+		Err(OutputLimitExceeded) => "OutputLimitExceeded"
 	}
 
 # Hold the decoder to its error contract on streams of a short sample, ours at
@@ -266,7 +278,7 @@ check_decoder_errors! = |sample, tmp| {
 	for stream in streams {
 		var $len = 0.U64
 		while $len < List.len(stream.bytes) {
-			result = Deflate.decompress(List.sublist(stream.bytes, { start: 0, len: $len }))
+			result = Deflate.decompress(List.sublist(stream.bytes, { start: 0, len: $len }), {})
 			if outcome(result) != "UnexpectedEnd" {
 				Stdout.line!("  ${stream.name}: the first ${$len.to_str()} bytes decode to ${outcome(result)}, not UnexpectedEnd")?
 				return Err(Exit(1))
@@ -285,7 +297,7 @@ check_decoder_errors! = |sample, tmp| {
 			at = $bit // 8
 			byte = List.get(stream.bytes, at) ?? 0
 			flipped = List.set(stream.bytes, at, byte.bitwise_xor(1.U8.shl_wrap(($bit % 8).to_u8_wrap()))) ?? stream.bytes
-			match outcome(Deflate.decompress(flipped)) {
+			match outcome(Deflate.decompress(flipped, {})) {
 				"Ok" => { $ok = $ok + 1 }
 				"CorruptData" => { $corrupt = $corrupt + 1 }
 				_ => { $short = $short + 1 }
@@ -297,7 +309,7 @@ check_decoder_errors! = |sample, tmp| {
 
 	prefix = [1, 2, 3]
 	level6 = Deflate.compress(sample, 6)
-	if Deflate.decompress_into(level6, prefix) == Ok(prefix.concat(sample)) {
+	if Deflate.decompress_into(level6, prefix, {}) == Ok(prefix.concat(sample)) {
 		Stdout.line!("  decompress_into appends after what out holds")
 	} else {
 		Stdout.line!("  decompress_into: MISMATCH")?
@@ -310,7 +322,7 @@ check_decoder_errors! = |sample, tmp| {
 check_roundtrip! : List(U8), Deflate.Level => Try({}, [Exit(I32), Interrupted, StdoutErr(IOErr)])
 check_roundtrip! = |corpus, level| {
 	deflated = Deflate.compress(corpus, level)
-	back = Deflate.decompress(deflated) ? |_| Exit(1)
+	back = Deflate.decompress(deflated, {}) ? |_| Exit(1)
 	if back == corpus {
 		Stdout.line!("  level ${level.to_u64().to_str()}: round-tripped ${deflated.len().to_str()} bytes")
 	} else {
@@ -353,7 +365,7 @@ check_reverse! = |corpus, corpus_os, level| {
 	res = output.require_success() ? |_| Exit(1)
 	# gzip member: 10-byte header, raw DEFLATE, then CRC32 + length (8 bytes).
 	raw = res.stdout_bytes.drop_first(10).drop_last(8)
-	decoded = Deflate.decompress(raw) ? |_| Exit(1)
+	decoded = Deflate.decompress(raw, {}) ? |_| Exit(1)
 	if decoded == corpus {
 		Stdout.line!("  gzip ${level}: we inflated gzip's stream byte-identically")
 	} else {
